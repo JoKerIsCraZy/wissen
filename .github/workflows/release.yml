@@ -22,7 +22,7 @@ jobs:
       # Drafter: erstellt/aktualisiert den Release-Draft auf main.
       # commitish explizit auf main, sonst nimmt v7 bei pull_request-Triggern
       # GITHUB_REF (refs/pull/N/merge) und die Releases-API antwortet 422.
-      - uses: release-drafter/release-drafter@c2e2804cc59f45f57076a99af580d0fedb697927 # v7
+      - uses: release-drafter/release-drafter@693d20e7c1ce1a81d3a41962f85914253b518449 # v7
         with:
           config-name: release-drafter.yml
           commitish: refs/heads/main
@@ -35,7 +35,7 @@ jobs:
       # Läuft NUR auf PR-Events — auf push:main hätte er kein PR-Objekt
       # zum Labeln und würde mit "Event type is wrong" failen.
       - if: ${{ github.event_name == 'pull_request' || github.event_name == 'pull_request_target' }}
-        uses: release-drafter/release-drafter/autolabeler@c2e2804cc59f45f57076a99af580d0fedb697927 # v7
+        uses: release-drafter/release-drafter/autolabeler@693d20e7c1ce1a81d3a41962f85914253b518449 # v7
         with:
           config-name: release-drafter.yml
         env:
