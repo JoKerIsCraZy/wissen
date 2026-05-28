@@ -23,6 +23,44 @@ function isDebug() {
   return process.env.DEBUG_SCRAPER === 'true';
 }
 
+// ---------- Storage-State (Browser-Session) ----------
+// storage.json enthält die MS-SSO-Session-Cookies (ESTSAUTH, JSESSIONID, …),
+// die replaybar sind — wer die Datei liest, übernimmt den Schul-Account.
+// Sie wird deshalb at-rest verschlüsselt, sofern `storageCrypto` (encrypt/
+// decrypt aus secretCrypto) via config injiziert ist. Ohne Injection (z.B.
+// Tests) bleibt das Verhalten Plaintext-Pfad-basiert.
+
+// Serialisiert den Playwright-Storage-State zu dem, was auf Disk landet.
+function serializeStorageState(stateObj, storageCrypto) {
+  const json = JSON.stringify(stateObj);
+  if (storageCrypto && typeof storageCrypto.encrypt === 'function') {
+    return storageCrypto.encrypt(json);
+  }
+  return json;
+}
+
+// Liest gespeicherten Browser-State von Disk. Rückgabe:
+//   - State-Objekt (entschlüsselt + geparst) → direkt an
+//     browser.newContext({ storageState }) übergebbar,
+//   - Dateipfad (ohne Crypto-Injection, z.B. Tests),
+//   - null bei korrupter/unlesbarer Datei → Caller macht frischen Login.
+// decrypt() reicht Plaintext ohne enc:-Prefix unverändert durch, daher
+// migrieren Alt-Dateien beim nächsten erfolgreichen Login automatisch.
+function readStorageState(storageFile, storageCrypto, onLog) {
+  if (!storageCrypto || typeof storageCrypto.decrypt !== 'function') {
+    return storageFile;
+  }
+  try {
+    const raw = fs.readFileSync(storageFile, 'utf8');
+    return JSON.parse(storageCrypto.decrypt(raw));
+  } catch (e) {
+    if (typeof onLog === 'function') {
+      onLog('⚠️  storage.json unlesbar (' + ((e && e.message) || e) + ') → neuer Login', 'warn');
+    }
+    return null;
+  }
+}
+
 // Wrapper für page.evaluate, der den Tocco-SPA-typischen Race
 // "Execution context was destroyed, most likely because of navigation"
 // abfängt: Tocco rendert Tabellen via DWR async nach und macht Hash-
@@ -99,7 +137,7 @@ async function api(page, restBase, endpoint, opts = {}) {
 }
 
 async function ensureLoggedIn(config, onLog, onPhase, onBrowser) {
-  const { msEmail, msPassword, baseUrl, headless, slowMo, storageFile, cwd } = config;
+  const { msEmail, msPassword, baseUrl, headless, slowMo, storageFile, cwd, storageCrypto } = config;
   const restBase = baseUrl + '/nice2';
   const chromium = requirePlaywright();
   if (typeof onPhase === 'function') onPhase('browser');
@@ -116,19 +154,22 @@ async function ensureLoggedIn(config, onLog, onPhase, onBrowser) {
   // 1. Versuch: gecachter State
   if (fs.existsSync(storageFile)) {
     onLog('♻️  Lade gespeicherten Browser-State (storage.json)...', 'info');
-    const ctx = await browser.newContext({ storageState: storageFile });
-    const pg = await ctx.newPage();
-    await pg.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-    await pg.waitForTimeout(1500);
-    const chk = await api(pg, restBase, '/username');
-    if (chk.ok && !chk.text.includes('anonymous')) {
-      const u = (chk.json && chk.json.username) || '(user)';
-      onLog('✅ Session gültig, eingeloggt als ' + u, 'info');
-      return { browser, context: ctx, page: pg };
+    const storageState = readStorageState(storageFile, storageCrypto, onLog);
+    if (storageState != null) {
+      const ctx = await browser.newContext({ storageState });
+      const pg = await ctx.newPage();
+      await pg.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+      await pg.waitForTimeout(1500);
+      const chk = await api(pg, restBase, '/username');
+      if (chk.ok && !chk.text.includes('anonymous')) {
+        const u = (chk.json && chk.json.username) || '(user)';
+        onLog('✅ Session gültig, eingeloggt als ' + u, 'info');
+        return { browser, context: ctx, page: pg };
+      }
+      onLog('⏰ Gecachte Session ungültig → neuer Login', 'info');
+      await pg.close().catch(() => {});
+      await ctx.close().catch(() => {});
     }
-    onLog('⏰ Gecachte Session ungültig → neuer Login', 'info');
-    await pg.close().catch(() => {});
-    await ctx.close().catch(() => {});
   }
 
   // 2. Frischer Login
@@ -177,10 +218,16 @@ async function ensureLoggedIn(config, onLog, onPhase, onBrowser) {
       }
 
       if (!clickTarget) {
-        // Diagnose: Screenshot immer (nützlich), DOM-Dump nur bei DEBUG_SCRAPER.
-        const shot = path.join(cwd, 'debug-no-button.png');
-        await page.screenshot({ path: shot, fullPage: true }).catch(() => {});
-        onLog('❌ Kein SSO-Button gefunden. Screenshot: ' + shot, 'error');
+        // Diagnose: Screenshot + DOM-Dump NUR bei DEBUG_SCRAPER. Der Screenshot
+        // kann die ausgefüllte MS-Login-Seite samt E-Mail zeigen und darf nicht
+        // ungefragt persistent auf die Platte (Backup-/FS-Leak).
+        if (isDebug()) {
+          const shot = path.join(cwd, 'debug-no-button.png');
+          await page.screenshot({ path: shot, fullPage: true }).catch(() => {});
+          onLog('❌ Kein SSO-Button gefunden. Screenshot: ' + shot, 'error');
+        } else {
+          onLog('❌ Kein SSO-Button gefunden. (DEBUG_SCRAPER=true für Screenshot.)', 'error');
+        }
 
         if (isDebug()) {
           const allClickables = await safeEvaluate(page, () => {
@@ -235,9 +282,15 @@ async function ensureLoggedIn(config, onLog, onPhase, onBrowser) {
     try {
       await loginPage.waitForSelector(pwSel, { state: 'visible', timeout: 25000 });
     } catch (e) {
-      const shot = path.join(cwd, 'debug-no-password.png');
-      await loginPage.screenshot({ path: shot, fullPage: true }).catch(() => {});
-      onLog('❌ Passwortfeld nicht gefunden. Screenshot: ' + shot, 'error');
+      // Screenshot NUR bei DEBUG_SCRAPER — er zeigt die MS-Login-Seite samt
+      // ausgefüllter E-Mail; nicht ungefragt persistent auf die Platte.
+      if (isDebug()) {
+        const shot = path.join(cwd, 'debug-no-password.png');
+        await loginPage.screenshot({ path: shot, fullPage: true }).catch(() => {});
+        onLog('❌ Passwortfeld nicht gefunden. Screenshot: ' + shot, 'error');
+      } else {
+        onLog('❌ Passwortfeld nicht gefunden. (DEBUG_SCRAPER=true für Screenshot.)', 'error');
+      }
       onLog('   URL: ' + redact(loginPage.url()), 'error');
 
       if (isDebug()) {
@@ -343,10 +396,16 @@ async function ensureLoggedIn(config, onLog, onPhase, onBrowser) {
     onLog('✅ Eingeloggt als ' + u, 'info');
 
     // Storage State für nächstes Mal speichern (mit restriktiven Permissions).
-    // Atomic-Write: erst tmp-Datei, dann rename. Verhindert corrupt storage.json
-    // wenn Prozess mitten im write crasht — Playwright schreibt nicht atomar.
+    // Die Session-Cookies sind replaybar → at-rest verschlüsseln (storageCrypto),
+    // sofern injiziert. Wir holen den State als Objekt und schreiben selbst,
+    // statt Playwright in eine .tmp schreiben zu lassen — sonst läge zwischendurch
+    // ein unverschlüsselter Klartext-Dump auf der Platte.
+    // Atomic-Write: erst tmp-Datei (0600), dann rename. Verhindert corrupt
+    // storage.json, wenn der Prozess mitten im write crasht.
+    const stateObj = await context.storageState();
+    const payload = serializeStorageState(stateObj, storageCrypto);
     const storageTmp = storageFile + '.tmp';
-    await context.storageState({ path: storageTmp });
+    fs.writeFileSync(storageTmp, payload, { encoding: 'utf8', mode: 0o600 });
     try { fs.chmodSync(storageTmp, 0o600); } catch (_) { /* Windows compat */ }
     try {
       fs.renameSync(storageTmp, storageFile);
@@ -360,11 +419,15 @@ async function ensureLoggedIn(config, onLog, onPhase, onBrowser) {
 
     return { browser, context, page };
   } catch (e) {
-    try {
-      const shot = path.join(cwd, 'login-error.png');
-      await page.screenshot({ path: shot, fullPage: true });
-      onLog('📸 Screenshot: ' + shot, 'error');
-    } catch (_) {}
+    // Screenshot NUR bei DEBUG_SCRAPER — kann die MS-Login-Seite samt
+    // ausgefüllter E-Mail enthalten; nicht ungefragt persistent auf die Platte.
+    if (isDebug()) {
+      try {
+        const shot = path.join(cwd, 'login-error.png');
+        await page.screenshot({ path: shot, fullPage: true });
+        onLog('📸 Screenshot: ' + shot, 'error');
+      } catch (_) {}
+    }
     await closeBrowserSafe(browser);
     throw new Error('Login fehlgeschlagen: ' + redact(e.message || ''));
   }
@@ -1094,5 +1157,7 @@ module.exports = {
   parseDwrIdMap,
   parsePruefungen,
   safeEvaluate,
-  createDetailPagePool
+  createDetailPagePool,
+  serializeStorageState,
+  readStorageState
 };

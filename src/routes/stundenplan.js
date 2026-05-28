@@ -4,6 +4,12 @@ const express = require('express');
 const { apiError } = require('../shared/apiError');
 const { getStundenplanStats } = require('../db/stats');
 
+// Obergrenze für ?limit= — Schul-Stundenplandaten sind klein; ein riesiger
+// limit-Wert (z.B. ?limit=2147483647) würde sonst die ganze Tabelle lesen +
+// als JSON serialisieren (Memory/Response-DoS). 2000 ist grosszügig über
+// jedem realen Mehrjahres-Plan.
+const MAX_STUNDENPLAN_LIMIT = 2000;
+
 module.exports = function stundenplanRoutes(deps) {
   const router = express.Router();
   const { db, logger, database, ratelimits } = deps;
@@ -29,7 +35,9 @@ module.exports = function stundenplanRoutes(deps) {
   router.get('/api/stundenplan', (req, res) => {
     const filters = {};
     const limitParam = parseInt(req.query.limit, 10);
-    if (Number.isFinite(limitParam) && limitParam > 0) filters.limit = limitParam;
+    if (Number.isFinite(limitParam) && limitParam > 0) {
+      filters.limit = Math.min(limitParam, MAX_STUNDENPLAN_LIMIT);
+    }
 
     const dateRe = /^\d{4}-\d{2}-\d{2}$/;
     if (req.query.from != null) {

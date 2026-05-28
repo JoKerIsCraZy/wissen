@@ -25,6 +25,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const db = require('./db');
 const scraper = require('./scraper');
+const secretCrypto = require('./secretCrypto');
 const { parseEnvFile } = require('./shared/envLoader');
 
 // ---------- Rendering ----------
@@ -99,7 +100,9 @@ async function main() {
     headless,
     slowMo,
     storageFile: path.join(dataDir, 'storage.json'),
-    cwd: dataDir
+    cwd: dataDir,
+    // storage.json at-rest verschlüsseln (replaybare SSO-Session-Cookies).
+    storageCrypto: { encrypt: secretCrypto.encrypt, decrypt: secretCrypto.decrypt }
   };
 
   console.log('🎓 Tocco WISS CLI');
