@@ -7,7 +7,7 @@
    ============================================================ */
 'use strict';
 
-const VERSION = 'wn-5';
+const VERSION = 'wn-6';
 const SHELL_CACHE = 'wn-shell-' + VERSION;
 
 const SHELL_URLS = [
