@@ -1,6 +1,6 @@
 {
   "name": "wissen",
-  "version": "1.1.2",
+  "version": "1.1.3",
   "private": true,
   "description": "Inoffizieller Scraper fuer das WISS Tocco-Schulportal (Noten + Stundenplan) mit Dashboard, Scheduler und Telegram-Bot",
   "license": "MIT",
