@@ -139,8 +139,19 @@ async function apiFetch(path, opts) {
     try { const j = await res.json(); if (j && j.error) msg = j.error; } catch (_) {}
     throw new Error(msg);
   }
-  if (res.status === 204) return null;
-  return res.json();
+  // Offline-Glance: der Service-Worker markiert aus dem Cache gelieferte
+  // Antworten mit X-WN-Offline: 1. Header VOR dem Body lesen (Body lässt
+  // sich nur einmal konsumieren). Nach dem Parsen den globalen Banner-Zustand
+  // setzen: zwischengespeicherter Stand → Banner zeigen (mit fetchedAt-Zeit
+  // falls vorhanden), frische Online-Antwort → Banner ausblenden.
+  const offlineStale = res.headers.get('X-WN-Offline') === '1';
+  if (res.status === 204) {
+    setOfflineGlance(offlineStale ? true : null);
+    return null;
+  }
+  const data = await res.json();
+  setOfflineGlance(offlineStale ? (data && data.fetchedAt ? data.fetchedAt : true) : null);
+  return data;
 }
 
 /* ============================================================
@@ -220,6 +231,81 @@ function fmtRelativeFuture(targetMs, refMs) {
   if (months < 12) return 'in ' + months + ' Mt';
   const years = Math.floor(days / 365);
   return 'in ' + years + ' J';
+}
+
+/* Offline-Glance — absoluter, lesbarer Zeitstempel für den zwischen-
+   gespeicherten Stand (de-CH). Anders als fmtRelativePast bewusst absolut
+   ("Stand von 28.05., 14:07"): bei Offline-Daten will der User den konkreten
+   Zeitpunkt sehen, nicht eine relative Spanne, die ohne Netz ohnehin
+   einfriert. Gibt '' zurück wenn der ISO-String nicht parsebar ist — der
+   Aufrufer fällt dann auf den generischen Text zurück. */
+function fmtOfflineStamp(iso) {
+  if (!iso) return '';
+  const norm = /Z|[+-]\d{2}:?\d{2}$/.test(iso) ? iso : iso.replace(' ', 'T') + 'Z';
+  const d = new Date(norm);
+  if (!Number.isFinite(d.getTime())) return '';
+  try {
+    return d.toLocaleString('de-CH', {
+      day: '2-digit', month: '2-digit',
+      hour: '2-digit', minute: '2-digit'
+    });
+  } catch (_) {
+    return '';
+  }
+}
+
+/* Offline-Glance-Banner — eine einzige, globale, dünne Leiste unter der
+   AppBar. Idempotent: das Element wird beim ersten Bedarf einmal erzeugt und
+   danach nur noch sein Text/hidden-Zustand aktualisiert (nicht pro View neu).
+   aria-live="polite" — der Hinweis ist informativ, nicht interruptiv.
+
+   state === null      → Banner ausblenden (frische Online-Daten).
+   state === true       → generischer Text (Header gesetzt, aber kein
+                          fetchedAt im Body, z. B. bei 204).
+   state = ISO-String   → "Offline · Stand von <Datum, Uhrzeit>". */
+let offlineGlanceEl = null;
+
+function ensureOfflineGlanceEl() {
+  if (offlineGlanceEl) return offlineGlanceEl;
+  const el = document.createElement('div');
+  el.className = 'm-offline';
+  el.id = 'offlineGlance';
+  el.setAttribute('role', 'status');
+  el.setAttribute('aria-live', 'polite');
+  el.hidden = true;
+  // Status nie nur über Farbe: ein Glyph trägt die "offline"-Bedeutung
+  // zusätzlich zur warning-Tönung. aria-hidden, der Text sagt es schon.
+  const glyph = document.createElement('span');
+  glyph.className = 'm-offline__glyph';
+  glyph.setAttribute('aria-hidden', 'true');
+  glyph.textContent = '⌁';
+  const label = document.createElement('span');
+  label.className = 'm-offline__label';
+  el.append(glyph, label);
+  // Direkt nach der AppBar, vor dem Main-Container einhängen: schiebt den
+  // Content sauber nach unten statt ihn zu überlagern, und verschwindet ohne
+  // Platz zu reservieren, sobald hidden gesetzt ist ([hidden] → display:none).
+  const appbar = document.querySelector('.m-appbar');
+  if (appbar && appbar.parentNode) appbar.insertAdjacentElement('afterend', el);
+  else if (main && main.parentNode) main.parentNode.insertBefore(el, main);
+  offlineGlanceEl = el;
+  return el;
+}
+
+function setOfflineGlance(state) {
+  // Kein Banner nötig und noch nie eines erzeugt → nichts tun (kein DOM-Müll).
+  if (state == null && !offlineGlanceEl) return;
+  const el = ensureOfflineGlanceEl();
+  if (state == null) {
+    el.hidden = true;
+    return;
+  }
+  const stamp = typeof state === 'string' ? fmtOfflineStamp(state) : '';
+  const label = el.querySelector('.m-offline__label');
+  label.textContent = stamp
+    ? 'Offline · Stand von ' + stamp
+    : 'Offline · zwischengespeicherter Stand';
+  el.hidden = false;
 }
 
 function loadingShell() {

@@ -301,6 +301,59 @@
 }
 .m-toast__action:active { transform: scale(0.96); }
 
+/* ============================================================
+   Offline-Glance banner
+   Dünne Leiste direkt unter der AppBar, wenn der Service-Worker offline
+   einen zwischengespeicherten Stand liefert. Dark-Carbon, warning-getönt
+   (--warning), aber ruhig: die Bedeutung trägt zusätzlich ein Glyph + Text,
+   nie nur die Farbe. Kein border-left-Stripe, kein gradient-text — voller
+   dünner Bottom-Border + dezenter Tint.
+
+   Liegt im normalen Fluss zwischen <header> und <main>: schiebt den Content
+   nach unten statt ihn zu überlagern, und reserviert keinen Platz wenn
+   hidden ([hidden] → display:none). z-index unter der AppBar (30), damit der
+   Glass-Topbar beim Scrollen sauber darüber bleibt.
+   ============================================================ */
+.m-offline {
+  position: sticky;
+  top: calc(var(--appbar-h) + var(--safe-top));
+  z-index: 29;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-xs);
+  padding: 7px var(--sp-md);
+  background: var(--warning-soft);
+  border-bottom: 1px solid var(--warning-border);
+  color: var(--warning);
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  /* Erscheint selten (nur ohne Netz aus dem Cache) → eine dezente
+   * Einblend-Animation ist hier angebracht. Nur opacity + transform
+   * (compositor-friendly), ease-out für ein "einlaufendes" Element. */
+  animation: offlineGlanceIn 200ms var(--ease);
+}
+.m-offline__glyph {
+  font-size: 14px;
+  line-height: 1;
+  /* Optisch auf die Textgrundlinie ziehen — das Glyph sitzt sonst hoch. */
+  transform: translateY(0.5px);
+}
+.m-offline__label {
+  /* Lange Stände nicht umbrechen lassen — lieber sauber kürzen, damit die
+   * Leiste eine Zeile dünn bleibt. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@keyframes offlineGlanceIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .m-offline { animation: none; }
+}
+
 /* Hide bottom-nav and appbar refresh button on settings to keep form scrollable */
 @media (display-mode: standalone) {
   body { user-select: none; -webkit-user-select: none; }
