@@ -17,6 +17,19 @@
   }
 
   let { modules, overallAvg, lastChanged, quickFilters }: Props = $props();
+
+  function isBkModule(row: IndexedRow): boolean {
+    const code = row.kuerzel_code || '';
+    if (!code || /-N\d+$/i.test(code)) return false;
+    return /(?<!\d)\d{3}(?!\d)/.test(code);
+  }
+
+  const bkAvg = $derived.by<number | null>(() => {
+    if (!modules) return null;
+    const list = modules.filter((r) => isBkModule(r) && r.note != null);
+    if (!list.length) return null;
+    return list.reduce((s, r) => s + (r.note as number), 0) / list.length;
+  });
 </script>
 
 <div class="tiles">
@@ -37,6 +50,12 @@
     </div>
     {#if overallAvg.gradedCount > 0 && modules}
       <div class="tile__name">{overallAvg.gradedCount} benotet</div>
+    {/if}
+    {#if bkAvg != null}
+      <div class="tile__bk">
+        <span class="tile__bk-label">BK</span>
+        <span class="tile__bk-value mono {gradeClass(bkAvg)}">{bkAvg.toFixed(2)}</span>
+      </div>
     {/if}
   </div>
 
@@ -169,6 +188,26 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .tile__bk {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-soft);
+  }
+  .tile__bk-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  .tile__bk-value {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
   }
 
   .tile--quick { padding-bottom: 12px; }
