@@ -137,10 +137,17 @@ function fetchUpstreamRelease(loggerInstance) {
                   bodyHtml = sanitizeReleaseHtml(marked.parse(rawBody));
                 } catch (_) { bodyHtml = null; }
               }
+              // html_url kommt aus der GitHub-API. Svelte escaped href NICHT
+              // gegen javascript:-Schemes — daher serverseitig auf http(s)
+              // validieren, sonst landet eine evtl. manipulierte URL ungeprüft
+              // als <a href> im Client. Fallback: kanonische Releases-URL.
+              const fallbackUrl = 'https://github.com/' + UPSTREAM_REPO + '/releases/latest';
+              const candidateUrl = typeof json.html_url === 'string' ? json.html_url : '';
+              const safeUrl = /^https?:\/\//i.test(candidateUrl) ? candidateUrl : fallbackUrl;
               data = {
                 tag: json.tag_name,
                 name: json.name || json.tag_name,
-                url: json.html_url || ('https://github.com/' + UPSTREAM_REPO + '/releases/latest'),
+                url: safeUrl,
                 publishedAt: json.published_at || null,
                 body: rawBody,        // Roh-Markdown als Fallback
                 bodyHtml: bodyHtml    // Marked + sanitize HTML — primary display

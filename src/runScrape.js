@@ -4,6 +4,7 @@ const path = require('node:path');
 
 const { escapeHtml } = require('./shared/escapeHtml');
 const { DATA_DIR } = require('./auth');
+const secretCrypto = require('./secretCrypto');
 
 // =============================================================
 // Helpers (pure / used by routes too)
@@ -62,7 +63,9 @@ function buildScraperConfig(s) {
     slowMo: s.slowMo,
     storageFile: path.join(DATA_DIR, 'storage.json'),
     cwd: DATA_DIR,
-    detailScrapeConcurrency: s.detailScrapeConcurrency
+    detailScrapeConcurrency: s.detailScrapeConcurrency,
+    // storage.json at-rest verschlüsseln (replaybare SSO-Session-Cookies).
+    storageCrypto: { encrypt: secretCrypto.encrypt, decrypt: secretCrypto.decrypt }
   };
 }
 
