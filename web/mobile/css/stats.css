@@ -786,6 +786,125 @@
   font-size: 13px;
 }
 
+/* "Zielnoten-Rechner": Preset-Chips + Verdikt. Sitzt im Result, unter dem
+ * Was-wäre-wenn, durch dieselbe gestrichelte Hairline getrennt. Eigene
+ * Tokens-Wiederverwendung wie der Rest des m-stats-ipa-Stils — kein neuer
+ * Akzent, keine Side-Stripe. */
+.m-stats-ipa__goalseek {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.m-stats-ipa__goalseek-label {
+  font-size: 10px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+/* Segmentierte Preset-Chips: genau einer aktiv (accent-tint). Touch-Targets
+ * ≥ 44px hoch; flex-fill, damit die vier Chips die Breite teilen statt links
+ * zu klumpen. */
+.m-stats-ipa__goalseek-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.m-stats-ipa__goalseek-chip {
+  flex: 1 1 0;
+  min-width: 56px;
+  min-height: 44px;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-soft);
+  background: var(--bg-elev);
+  color: var(--text-mute);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color var(--t-fast) var(--ease),
+              background var(--t-fast) var(--ease),
+              color var(--t-fast) var(--ease),
+              transform var(--t-fast) var(--ease);
+}
+@media (hover: hover) and (pointer: fine) {
+  .m-stats-ipa__goalseek-chip:hover {
+    border-color: var(--border);
+    color: var(--text);
+  }
+}
+.m-stats-ipa__goalseek-chip:active {
+  transform: scale(0.97);
+}
+.m-stats-ipa__goalseek-chip.is-active {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.m-stats-ipa__goalseek-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Verdikt: eine Zeile, Wort + Tonal-Form. reachable bleibt neutral (der
+ * grade-getönte IPA-Chip trägt die Aussage), secured/impossible bekommen
+ * den passenden Soft-Ground. */
+.m-stats-ipa__goalseek-verdict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 8px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-soft);
+  background: var(--bg-elev);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.m-stats-ipa__goalseek-verdict--secured {
+  background: var(--success-soft);
+  border-color: var(--success-border);
+}
+.m-stats-ipa__goalseek-verdict--impossible {
+  background: var(--danger-soft);
+  border-color: var(--danger-border);
+}
+.m-stats-ipa__goalseek-verdict--unknown {
+  color: var(--text-dim);
+}
+.m-stats-ipa__goalseek-text {
+  color: var(--text);
+}
+.m-stats-ipa__goalseek-verdict--unknown .m-stats-ipa__goalseek-text {
+  color: var(--text-dim);
+}
+.m-stats-ipa__goalseek-ipachip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  /* Neutrale Akzent-Färbung: die benötigte IPA ist eine Schwelle, kein
+     erreichter Notenwert — niedrig = gut, also NICHT die Fail-Ampel (rot).
+     Gut/Schlecht trägt der Verdict-Zustand. */
+  border: 1px solid var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  vertical-align: baseline;
+}
+.m-stats-ipa__goalseek-hint {
+  color: var(--text-dim);
+  font-size: 11px;
+  letter-spacing: 0.01em;
+}
+
 .m-stats-ipa__note {
   margin: 0;
   font-size: 11px;
@@ -816,4 +935,6 @@
   .m-stats-histo__bar { transition: none; }
   .m-stats-ipa__field { transition: none; }
   .m-stats-histo__bar:hover { opacity: 1; }
+  .m-stats-ipa__goalseek-chip { transition: none; }
+  .m-stats-ipa__goalseek-chip:active { transform: none; }
 }
