@@ -621,6 +621,45 @@
 }
 .m-now-tile__change-sub { font-size: 11px; color: var(--text-mute); }
 
+/* Notenschnitt + BK-Schnitt strip — statisch, kein expand.
+   Sitzt ganz oben auf der Aktuell-Seite, vor der Now-Card. */
+.m-schnitt-shell {
+  margin-top: 12px;
+}
+.m-schnitt-strip {
+  display: flex;
+  align-items: center;
+  padding: 14px 18px;
+}
+.m-schnitt-strip__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+.m-schnitt-strip__item + .m-schnitt-strip__item {
+  padding-left: 18px;
+}
+.m-schnitt-strip__lbl {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  line-height: 1;
+}
+.m-schnitt-strip__val {
+  font-family: var(--font-mono);
+  font-feature-settings: "tnum" 1, "zero" 1;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  margin-top: 3px;
+  color: var(--text);
+  transition: color 300ms ease;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .m-now-card--active .m-now-card__lbl::after {
     animation: none;
@@ -630,4 +669,5 @@
   .m-now-tile:active { transform: none; }
   .m-now-tile__chev { transition: none; }
   .m-now-tile__panel { animation: none; }
+  .m-schnitt-strip__val { transition: none; }
 }

@@ -11,6 +11,13 @@
 
 let notenState = { query: '', sort: 'fach', onlyWithGrade: false };
 
+// BK-Filter: dreistellige Modulnummer, ohne Niveau-Suffixe (-Nx = Mathe, Englisch, …)
+function isBkRow(r) {
+  const code = r.kuerzel_code || '';
+  if (!code || /-N\d+$/i.test(code)) return false;
+  return /(?<!\d)\d{3}(?!\d)/.test(code);
+}
+
 async function renderNoten() {
   titleEl.textContent = 'Noten';
   skeletonShell('noten');
@@ -26,19 +33,43 @@ function drawNoten(data) {
   main.replaceChildren();
 
   if (data && data.avg != null) {
+    const rows = data.rows || [];
+    const totalCount = data.count || 0;
+    const gradedCount = rows.filter((r) => r.note != null).length;
+
+    // BK-Schnitt aus den Noten-Rows berechnen
+    const bkFiltered = rows.filter(r => isBkRow(r) && r.note != null);
+    const bkAvg = bkFiltered.length > 0
+      ? bkFiltered.reduce((s, r) => s + r.note, 0) / bkFiltered.length
+      : null;
+
     const hero = document.createElement('div');
     hero.className = 'm-hero';
+
     const left = document.createElement('div');
     const lab = document.createElement('div'); lab.className = 'm-hero__label'; lab.textContent = 'Durchschnitt';
-    const val = document.createElement('div'); val.className = 'm-hero__value'; val.textContent = data.avg.toFixed(2);
+    const val = document.createElement('div');
+    val.className = 'm-hero__value ' + gradeClass(data.avg);
+    val.textContent = data.avg.toFixed(2);
     left.append(lab, val);
+
+    if (bkAvg != null) {
+      const mid = document.createElement('div');
+      const bkLab = document.createElement('div'); bkLab.className = 'm-hero__label'; bkLab.textContent = 'BK-Schnitt';
+      const bkVal = document.createElement('div');
+      bkVal.className = 'm-hero__value ' + gradeClass(bkAvg);
+      bkVal.textContent = bkAvg.toFixed(2);
+      mid.append(bkLab, bkVal);
+      hero.append(left, mid);
+    } else {
+      hero.append(left);
+    }
+
     const right = document.createElement('div'); right.className = 'm-hero__meta';
-    const totalCount = data.count || 0;
-    const gradedCount = (data.rows || []).filter((r) => r.note != null).length;
     right.innerHTML =
       '<div class="m-hero__metarow"><strong>' + gradedCount + '</strong> Benotet</div>' +
       '<div class="m-hero__metarow"><strong>' + totalCount + '</strong> Module</div>';
-    hero.append(left, right);
+    hero.append(right);
     main.append(hero);
   }
   if (data && data.bySemester) {

@@ -312,6 +312,18 @@ function drawAktuell(planData, notenData) {
   });
   freshChanges.sort((a, b) => b.ts - a.ts);
 
+  // BK-Schnitt: dreistellige Modulnummer ohne Niveau-Suffixe (-Nx = Mathe, Englisch, …)
+  // Gleiche Logik wie stats/+page.svelte isBkModule.
+  function isBkRow(r) {
+    const code = r.kuerzel_code || '';
+    if (!code || /-N\d+$/i.test(code)) return false;
+    return /(?<!\d)\d{3}(?!\d)/.test(code);
+  }
+  const bkRows = noten.filter(r => isBkRow(r) && r.note != null);
+  const bkAvg = bkRows.length > 0
+    ? bkRows.reduce((s, r) => s + r.note, 0) / bkRows.length
+    : null;
+
   const RV = (typeof window !== 'undefined') ? window.RaumView : null;
 
   // Builds the captioned RaumView block (pill above + inline floor-plan
@@ -427,6 +439,45 @@ function drawAktuell(planData, notenData) {
       if (fp) card.append(fp);
     }
   }
+  // Notenschnitt + BK-Schnitt — ganz oben, vor der Now-Card
+  const notenAvg = notenData && notenData.avg != null ? notenData.avg : null;
+  if (notenAvg != null) {
+    const schnittShell = document.createElement('div');
+    schnittShell.className = 'm-now-tile-shell m-schnitt-shell';
+    const strip = document.createElement('div');
+    strip.className = 'm-schnitt-strip';
+    strip.setAttribute('aria-label',
+      'Notenschnitt ' + notenAvg.toFixed(2)
+      + (bkAvg != null ? ', BK-Schnitt ' + bkAvg.toFixed(2) : ''));
+
+    const primary = document.createElement('div');
+    primary.className = 'm-schnitt-strip__item';
+    const primLbl = document.createElement('span');
+    primLbl.className = 'm-schnitt-strip__lbl';
+    primLbl.textContent = 'Notenschnitt';
+    const primVal = document.createElement('span');
+    primVal.className = 'm-schnitt-strip__val mono ' + gradeClass(notenAvg);
+    primVal.textContent = notenAvg.toFixed(2);
+    primary.append(primLbl, primVal);
+    strip.append(primary);
+
+    if (bkAvg != null) {
+      const bkItem = document.createElement('div');
+      bkItem.className = 'm-schnitt-strip__item';
+      const bkLbl = document.createElement('span');
+      bkLbl.className = 'm-schnitt-strip__lbl';
+      bkLbl.textContent = 'BK-Schnitt';
+      const bkVal = document.createElement('span');
+      bkVal.className = 'm-schnitt-strip__val mono ' + gradeClass(bkAvg);
+      bkVal.textContent = bkAvg.toFixed(2);
+      bkItem.append(bkLbl, bkVal);
+      strip.append(bkItem);
+    }
+
+    schnittShell.append(strip);
+    main.append(schnittShell);
+  }
+
   main.append(card);
 
   // Two living tiles
