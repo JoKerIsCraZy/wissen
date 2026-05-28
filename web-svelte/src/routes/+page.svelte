@@ -396,6 +396,29 @@
     return `vor ${years} J`;
   }
 
+  /* BK-Filter: 3-stellige Modulnummer, ohne Niveau-Suffixe (-Nx = Englisch,
+   * Mathe usw.). Mirrors isBkModule aus stats/+page.svelte. */
+  function isBkModule(row: NotenRow): boolean {
+    const code = row.kuerzel_code || '';
+    if (!code) return false;
+    if (/-N\d+$/i.test(code)) return false;
+    return /(?<!\d)\d{3}(?!\d)/.test(code);
+  }
+
+  const bkAvg = $derived.by<number | null>(() => {
+    if (!noten || noten.length === 0) return null;
+    const list = noten.filter((r) => isBkModule(r) && r.note != null);
+    if (list.length === 0) return null;
+    let sum = 0;
+    for (const r of list) sum += r.note as number;
+    return sum / list.length;
+  });
+
+  const bkCount = $derived.by<number>(() => {
+    if (!noten) return 0;
+    return noten.filter((r) => isBkModule(r) && r.note != null).length;
+  });
+
   /* Note → grade-color CSS variable. Mirrors the band in the Noten route. */
   function gradeColor(note: number | null | undefined): string {
     if (note == null) return 'var(--text-mute)';
@@ -733,16 +756,29 @@
     {#if notenCount > 0}
       <header class="grades-strip" aria-label="Notenschnitt">
         <div class="grades-strip__main">
-          <span class="grades-strip__label">Notenschnitt</span>
-          <span
-            class="grades-strip__value mono"
-            style:color={gradeColor(notenAvg)}
-          >
-            {notenAvg != null ? notenAvg.toFixed(2) : '—'}
-          </span>
-          <span class="grades-strip__count mono">
-            {notenCount} Module
-          </span>
+          <div class="grades-strip__primary">
+            <span class="grades-strip__label">Notenschnitt</span>
+            <span
+              class="grades-strip__value mono"
+              style:color={gradeColor(notenAvg)}
+            >
+              {notenAvg != null ? notenAvg.toFixed(2) : '—'}
+            </span>
+            <span class="grades-strip__count mono">
+              {notenCount} Module
+            </span>
+          </div>
+          {#if bkCount > 0}
+            <div class="grades-strip__bk" aria-label="BK-Schnitt {bkAvg != null ? bkAvg.toFixed(2) : '—'}">
+              <span class="grades-strip__bk-label">BK</span>
+              <span
+                class="grades-strip__bk-value mono"
+                style:color={gradeColor(bkAvg)}
+              >
+                {bkAvg != null ? bkAvg.toFixed(2) : '—'}
+              </span>
+            </div>
+          {/if}
         </div>
 
         {#if lastAddedNote}
@@ -1084,6 +1120,11 @@
   }
   .grades-strip__main {
     display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+  .grades-strip__primary {
+    display: flex;
     align-items: baseline;
     gap: 14px;
   }
@@ -1099,11 +1140,38 @@
     font-weight: 600;
     letter-spacing: -0.02em;
     line-height: 1;
+    transition: color var(--t-normal, 300ms) ease;
   }
   .grades-strip__count {
     font-size: 12px;
     color: var(--text-mute);
     letter-spacing: 0.02em;
+  }
+  /* BK-Schnitt — sekundäre Grösse, vertikal gestapelt, kleiner als Hauptwert */
+  .grades-strip__bk {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+    padding-left: 20px;
+    border-left: 1px solid var(--border-soft);
+  }
+  .grades-strip__bk-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    line-height: 1;
+  }
+  .grades-strip__bk-value {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1;
+    font-family: var(--font-mono);
+    font-feature-settings: 'tnum' 1, 'zero' 1;
+    transition: color var(--t-normal, 300ms) ease;
   }
   .grades-strip__sems {
     display: flex;
