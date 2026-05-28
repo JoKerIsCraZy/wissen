@@ -532,6 +532,21 @@
   margin-top: 2px;
 }
 
+/* Zwei Schnitt-Boxen (BK + M+E) untereinander auf Mobile, side-by-side
+ * ab ~520px. Das Grid steuert nur die Außenanordnung, die Boxen selbst
+ * tragen `.m-stats-ipa__bk`. */
+.m-stats-ipa__avg-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+@media (min-width: 520px) {
+  .m-stats-ipa__avg-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
 /* BK-Box: gleiche Schale wie die Result-Box, aber rein neutral-Surface
  * (kein accent-tint). Visuell als „Datenquelle für die Gesamtformel"
  * lesbar — sitzt zwischen IPA-Inputs und Result. */
@@ -545,6 +560,8 @@
   border-radius: var(--r-md);
   margin-bottom: 14px;
 }
+/* Innerhalb des avg-grid übernimmt das Grid das Bottom-Spacing. */
+.m-stats-ipa__avg-grid .m-stats-ipa__bk { margin-bottom: 0; }
 .m-stats-ipa__bk-main {
   display: flex;
   flex-direction: column;
