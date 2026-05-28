@@ -653,40 +653,69 @@ function semStat(labelText, valueText, valueExtraClass) {
 }
 
 /* ------------------------------------------------------------------ */
-/* QV-Rechner — Qualifikationsverfahren OHNE ABU.                     */
+/* QV-Rechner — BiVo 2021, ABU dispensiert.                           */
 /*                                                                    */
-/*   IPA = (2·A + B + C) / 4           [A=Prozess/Resultat, B=Doku,   */
-/*                                       C=Präsentation/Gespräch]     */
-/*   BK  = Ø der ICT-Modulnoten (3-stellige Modulnummern,             */
-/*         Mathematik + Englisch ausgeschlossen)                      */
-/*   Gesamt = (3·IPA + 5·BK) / 8        [IPA 37.5% · BK 62.5%]        */
-/*   Bestanden: IPA ≥ 4.0  UND  Gesamt ≥ 4.0                          */
+/* Verbindliche Gewichtung laut Verordnung / Notenausweis:            */
+/*   IPA                      40 %                                    */
+/*   Informatikkompetenzen    30 %  (= BK, ohne Mathe + Englisch)     */
+/*   Mathe + Englisch         10 %                                    */
+/*   ABU                      20 %  (dispensiert → fällt weg)         */
 /*                                                                    */
-/*   Alle Zwischen- und Endwerte werden auf 0.1 gerundet (CH-Konv.).  */
+/* Ohne ABU summieren sich die drei Bereiche auf 80 %. Die Division   */
+/* durch 0.8 schiebt die Gesamtnote zurück auf die 1–6-Skala — kein   */
+/* Wahlschritt, sondern zwingend.                                     */
+/*                                                                    */
+/*   IPA   = (2·A + B + C) / 4         [A=Prozess/Resultat,           */
+/*                                      B=Doku, C=Präsentation]       */
+/*   BK    = Ø der Informatik-Modulnoten direkt aus Tocco             */
+/*   ME    = Ø der Mathe- und Englisch-Module                         */
+/*   Gesamt = (IPA·0.4 + BK·0.3 + ME·0.1) / 0.8                       */
+/*                                                                    */
+/* Effektiv: IPA 50 %, BK 37.5 %, ME 12.5 % — nur das Ergebnis der    */
+/* Normalisierung, keine zweite Gewichtung.                           */
+/*                                                                    */
+/* Notenquelle ist row.note direkt aus Tocco (parseNote macht nur     */
+/* String→Float, keine Berechnung). KEIN backend-berechneter Schnitt. */
+/*                                                                    */
+/* Bestanden: IPA ≥ 4.0 UND Gesamt ≥ 4.0. Alle Zwischen- und          */
+/* Endwerte werden auf 0.1 gerundet (CH-Konvention).                  */
 /* ------------------------------------------------------------------ */
 
-/* Filter: Was zählt zur BK-Schnittberechnung?
+/* Modul-Filter für die zwei Schnitte:
  *
- *   - Sprachen / Mathematik / ABU haben einen Niveau-Suffix wie -N1
- *     oder -N3 am Ende vom kuerzel_code → werden ausgeschlossen.
- *   - ICT-Module haben eine 3-stellige Modulnummer im Code (z.B.
- *     "122", "M122", "BMI-AP-122"). Wir erkennen sie an einer
- *     dreistelligen Ziffernfolge die NICHT von weiteren Ziffern
- *     umringt ist (so dass "1234" oder Jahreszahlen wie "2024" nicht
- *     fälschlich matchen).
- *   - Nur Module mit echter, numerischer Note werden berücksichtigt
- *     (note != null) — unbenotete BK-Module zählen nicht. */
-function isBkModule(row) {
+ *   isMathEnglishModule(row)
+ *     Matched Mathe + Englisch über fach_name (Mathematik / Englisch)
+ *     — unabhängig vom Niveau-Suffix oder Semester. Fängt damit
+ *     Mathematik-N1, Mathematik-N2, Englisch-N1 etc. einheitlich ab.
+ *
+ *   isInformatikModule(row)
+ *     Berufsfach: 3-stellige Modulnummer im kuerzel_code (z.B.
+ *     "122", "M122", "BMI-AP-122"). Lookbehind/-ahead schützt vor
+ *     falsch gematchten Jahreszahlen ("2024"). Mathe + Englisch
+ *     werden zusätzlich explizit ausgeschlossen, falls ein
+ *     ICT-Modul jemals ein Niveau-Suffix bekommt.
+ *
+ * Modul ohne Note → in beiden Filtern raus.
+ * Module die WEDER M+E noch Informatik sind (z.B. ABU, falls jemand
+ * mit ABU drinsitzt) fallen aus beiden Schnitten raus. */
+function isMathEnglishModule(row) {
   if (!row) return false;
+  const name = (row.fach_name || '').toLowerCase();
+  return name.indexOf('mathematik') !== -1 || name.indexOf('englisch') !== -1;
+}
+function isInformatikModule(row) {
+  if (!row) return false;
+  if (isMathEnglishModule(row)) return false;
   const code = row.kuerzel_code || '';
   if (!code) return false;
-  if (/-N\d+$/i.test(code)) return false; // Niveau-Suffix → Sprache/Mathe/ABU
-  return /(?<!\d)\d{3}(?!\d)/.test(code);  // 3-stellige Modulnummer
+  if (/-N\d+$/i.test(code)) return false;
+  return /(?<!\d)\d{3}(?!\d)/.test(code);
 }
 
-/* Liefert { rows, count, avg, rounded } für die BK-Berechnung. */
-function computeBk(rows) {
-  const list = (rows || []).filter((r) => isBkModule(r) && r.note != null);
+/* Liefert { rows, count, avg, rounded } für eine Schnitt-Berechnung.
+ * predicate muss bereits den null-Note-Filter mitbringen. */
+function computeAvg(rows, predicate) {
+  const list = (rows || []).filter((r) => predicate(r) && r.note != null);
   if (list.length === 0) {
     return { rows: [], count: 0, avg: null, rounded: null };
   }
@@ -708,21 +737,22 @@ function buildQvCard(rows) {
   title.textContent = 'QV-Rechner';
   const hint = document.createElement('span');
   hint.className = 'm-stats-card__hint mono';
-  hint.textContent = 'IPA + BK · ohne ABU';
+  hint.textContent = 'IPA + BK + M+E · ABU dispensiert';
   head.append(title, hint);
   card.append(head);
 
   const intro = document.createElement('p');
   intro.className = 'm-stats-ipa__intro';
-  intro.textContent = 'Schätzt deine QV-Gesamtnote aus den drei IPA-Teilnoten und '
-    + 'dem BK-Schnitt deiner ICT-Module. Reverse-Modus rechnet aus, welche '
-    + 'IPA-Note du für eine Zielnote noch brauchst.';
+  intro.textContent = 'Schätzt deine QV-Gesamtnote aus den drei '
+    + 'IPA-Teilnoten, dem Schnitt deiner Informatik-Module (BK) und '
+    + 'dem Schnitt aus Mathe und Englisch (M+E). Die Modulnoten '
+    + 'kommen direkt aus Tocco.';
   card.append(intro);
 
   const formula = document.createElement('div');
   formula.className = 'm-stats-ipa__formula mono';
   formula.textContent = 'IPA = (2·A + B + C) / 4    ·    '
-    + 'Gesamt = (3·IPA + 5·BK) / 8';
+    + 'Gesamt = (IPA·0.4 + BK·0.3 + ME·0.1) / 0.8';
   card.append(formula);
 
   // IPA-Teilnoten — 3 Inputs (A 2x gewichtet, B, C).
@@ -733,11 +763,16 @@ function buildQvCard(rows) {
   inputs.append(qvField('c', 'C · Präsentation / Gespräch', '1×'));
   card.append(inputs);
 
-  // BK-Box: live aus den geladenen Noten berechnet. Re-Render bei jeder
-  // SSE-Welle automatisch — kein User-Input nötig.
+  // Zwei Schnitt-Boxen nebeneinander (BK + M+E). Beide live aus den
+  // geladenen Noten berechnet, Re-Render bei jeder SSE-Welle automatisch.
+  const avgGrid = document.createElement('div');
+  avgGrid.className = 'm-stats-ipa__avg-grid';
   const bkHost = document.createElement('div');
   bkHost.className = 'm-stats-ipa__bk-host';
-  card.append(bkHost);
+  const meHost = document.createElement('div');
+  meHost.className = 'm-stats-ipa__bk-host';
+  avgGrid.append(bkHost, meHost);
+  card.append(avgGrid);
 
   // Result-Container — live-Recompute zeichnet nur diesen Bereich neu
   // (Input-Felder behalten Focus + Cursor, keine "Tastatur klappt zu"-Bugs).
@@ -747,17 +782,33 @@ function buildQvCard(rows) {
 
   const note = document.createElement('p');
   note.className = 'm-stats-ipa__note';
-  note.textContent = 'Bestanden = IPA ≥ 4.0 · Gesamtnote ≥ 4.0 (auf 0.1 gerundet). '
-    + 'BK-Schnitt aus allen ICT-Modulnoten (dreistellige Modulnummer, ohne '
-    + 'Mathematik und Englisch). IPA-Gewichtung 37.5%, BK 62.5%.';
+  note.textContent = 'Bestanden = IPA ≥ 4.0 · Gesamtnote ≥ 4.0 (auf 0.1 '
+    + 'gerundet). BK-Schnitt aus allen Informatik-Modulnoten direkt aus '
+    + 'Tocco (dreistellige Modulnummer). M+E-Schnitt aus den Mathe- und '
+    + 'Englisch-Modulen (alle Niveaus). Verordnung: IPA 40 %, '
+    + 'Informatikkompetenzen 30 %, Mathe+Englisch 10 %, ABU 20 % (bei dir '
+    + 'dispensiert, fällt weg). Ohne ABU summieren sich die drei Bereiche '
+    + 'auf 80 %, deshalb die Division durch 0.8 — das schiebt die '
+    + 'Gesamtnote zurück auf die 1–6-Skala. Effektiv schlägt damit IPA '
+    + '50 %, BK 37.5 %, M+E 12.5 % auf die Endnote durch.';
   card.append(note);
 
-  const bk = computeBk(rows);
+  const bk = computeAvg(rows, isInformatikModule);
+  const me = computeAvg(rows, isMathEnglishModule);
 
   // Initial-Render
   syncQvInputsFromState(inputs);
-  bkHost.replaceChildren(buildBkBox(bk));
-  resultHost.replaceChildren(buildQvResult(bk));
+  bkHost.replaceChildren(buildAvgBox(bk, {
+    label: 'Informatikkompetenzen',
+    weight: '30 %',
+    emptyMsg: 'noch keine Informatik-Module benotet',
+  }));
+  meHost.replaceChildren(buildAvgBox(me, {
+    label: 'Mathe + Englisch',
+    weight: '10 %',
+    emptyMsg: 'noch keine Mathe-/Englisch-Module benotet',
+  }));
+  resultHost.replaceChildren(buildQvResult(bk, me));
 
   // Live-Recompute bei jedem Input (eigener Listener pro Feld, data-key
   // entscheidet welcher State-Slot geändert wird).
@@ -770,7 +821,7 @@ function buildQvCard(rows) {
       const parsed = v === '' ? null : parseFloat(v);
       statsState.qv[key] = (parsed != null && Number.isFinite(parsed)) ? parsed : null;
       updateFieldValidity(field, statsState.qv[key]);
-      resultHost.replaceChildren(buildQvResult(bk));
+      resultHost.replaceChildren(buildQvResult(bk, me));
     });
   });
 
@@ -828,7 +879,7 @@ function updateFieldValidity(field, value) {
   if (err) err.hidden = !invalid;
 }
 
-function buildBkBox(bk) {
+function buildAvgBox(data, opts) {
   const box = document.createElement('div');
   box.className = 'm-stats-ipa__bk';
 
@@ -837,20 +888,21 @@ function buildBkBox(bk) {
 
   const lab = document.createElement('div');
   lab.className = 'm-stats-ipa__bk-label';
-  lab.textContent = 'BK-Schnitt';
+  lab.textContent = opts.label;
 
   const val = document.createElement('div');
   val.className = 'm-stats-ipa__bk-value mono '
-    + gradeClass(bk.rounded);
-  val.textContent = bk.rounded != null ? bk.rounded.toFixed(1) : '–';
+    + gradeClass(data.rounded);
+  val.textContent = data.rounded != null ? data.rounded.toFixed(1) : '–';
 
   const exact = document.createElement('div');
   exact.className = 'm-stats-ipa__bk-exact mono';
-  if (bk.count === 0) {
-    exact.textContent = 'noch keine BK-Module benotet';
+  if (data.count === 0) {
+    exact.textContent = opts.emptyMsg;
   } else {
-    exact.textContent = 'exakt ' + bk.avg.toFixed(2)
-      + ' · ' + bk.count + (bk.count === 1 ? ' Modul' : ' Module');
+    exact.textContent = 'exakt ' + data.avg.toFixed(2)
+      + ' · ' + data.count + (data.count === 1 ? ' Modul' : ' Module')
+      + ' · ' + opts.weight;
   }
 
   main_.append(lab, val, exact);
@@ -859,7 +911,7 @@ function buildBkBox(bk) {
   // Compact-Modul-Liste als Klick-erweiterbare Pille — User kann nachlesen
   // welche Module einbezogen wurden. Solange das per Default zu ist, frisst
   // sie keinen Platz; aufgeklappt sieht der User die Bezugsbasis.
-  if (bk.count > 0) {
+  if (data.count > 0) {
     const details = document.createElement('details');
     details.className = 'm-stats-ipa__bk-details';
     const summary = document.createElement('summary');
@@ -869,7 +921,7 @@ function buildBkBox(bk) {
 
     const list = document.createElement('ul');
     list.className = 'm-stats-ipa__bk-list';
-    bk.rows.slice().sort((a, b) => {
+    data.rows.slice().sort((a, b) => {
       // Sort: code aufsteigend (numerisch wenn rein 3-stellig, sonst alphab.).
       const ca = (a.kuerzel_code || '');
       const cb = (b.kuerzel_code || '');
@@ -902,7 +954,7 @@ function buildBkBox(bk) {
   return box;
 }
 
-function buildQvResult(bk) {
+function buildQvResult(bk, me) {
   const result = document.createElement('div');
   result.className = 'm-stats-ipa__result';
 
@@ -915,10 +967,14 @@ function buildQvResult(bk) {
   const ipaExact = ipaInputsValid ? (2 * a + b + c) / 4 : null;
   const ipa = ipaExact != null ? Math.round(ipaExact * 10) / 10 : null;
 
-  // Gesamtnote nur wenn BOTH inputs UND BK-Schnitt verfügbar.
+  // Gesamtnote: Gesamt = (IPA·0.4 + BK·0.3 + ME·0.1) / 0.8.
+  // Braucht IPA-Inputs UND beide Schnitte.
   const hasBk = bk && bk.rounded != null;
-  const allValid = ipaInputsValid && hasBk;
-  const gesamtExact = allValid ? (3 * ipa + 5 * bk.rounded) / 8 : null;
+  const hasMe = me && me.rounded != null;
+  const allValid = ipaInputsValid && hasBk && hasMe;
+  const gesamtExact = allValid
+    ? (ipa * 0.4 + bk.rounded * 0.3 + me.rounded * 0.1) / 0.8
+    : null;
   const gesamtR = gesamtExact != null ? Math.round(gesamtExact * 10) / 10 : null;
 
   const main_ = document.createElement('div');
@@ -936,11 +992,18 @@ function buildQvResult(bk) {
   exact.className = 'm-stats-ipa__result-exact mono';
   if (!ipaInputsValid) {
     exact.textContent = 'A · B · C ausfüllen';
+  } else if (!hasBk && !hasMe) {
+    exact.textContent = 'IPA ' + ipa.toFixed(1) + ' · BK fehlt · M+E fehlt';
   } else if (!hasBk) {
-    exact.textContent = 'IPA ' + ipa.toFixed(1) + ' · BK fehlt';
+    exact.textContent = 'IPA ' + ipa.toFixed(1)
+      + ' · BK fehlt · M+E ' + me.rounded.toFixed(1);
+  } else if (!hasMe) {
+    exact.textContent = 'IPA ' + ipa.toFixed(1)
+      + ' · BK ' + bk.rounded.toFixed(1) + ' · M+E fehlt';
   } else {
     exact.textContent = 'IPA ' + ipa.toFixed(1)
       + ' · BK ' + bk.rounded.toFixed(1)
+      + ' · M+E ' + me.rounded.toFixed(1)
       + ' · exakt ' + gesamtExact.toFixed(2);
   }
 
@@ -963,26 +1026,23 @@ function buildQvResult(bk) {
   }
 
   // "Was-wäre-wenn"-Pillen: drei feste Szenarien (IPA 5.0 / 5.5 / 6.0)
-  // mit der jeweiligen Gesamtnote bei gegebenem BK. Nur sinnvoll wenn BK
-  // verfügbar ist — sonst wäre die Pille rein hypothetisch und der User
-  // hätte keinen Anker. Read-only-Display, kein Tap-Handler — der User
-  // soll auf einen Blick sehen wo er hin will.
-  if (hasBk) {
-    result.append(buildQvWhatIf(bk));
+  // mit der jeweiligen Gesamtnote bei gegebenen BK- und ME-Schnitten.
+  // Nur sinnvoll wenn beide verfügbar sind — die ÷ 0.8 ergibt sonst
+  // keine konsistente Note. Read-only-Display, kein Tap-Handler.
+  if (hasBk && hasMe) {
+    result.append(buildQvWhatIf(bk, me));
   }
   return result;
 }
 
 /* Was-wäre-wenn-Pillen unter dem Result.
  *
- * Bei fixem BK-Schnitt rechnen wir für drei Standard-IPA-Werte (5.0 / 5.5
- * / 6.0) die resultierende QV-Gesamtnote durch. Jede Pille trägt eine
- * passing/failing-Klasse, damit der User auf einen Blick erkennt, ob
- * dieses Szenario Bestehensregel (IPA ≥ 4 ∧ Gesamt ≥ 4) trifft.
- *
- * Reine Read-only-Pillen — keine Tap-Aktion. Die Info ist statisch und
- * dient dem User als Orientierung "wie viel IPA brauche ich für Note X". */
-function buildQvWhatIf(bk) {
+ * Bei fixen BK- und ME-Schnitten rechnen wir für drei Standard-IPA-Werte
+ * (5.0 / 5.5 / 6.0) die resultierende QV-Gesamtnote durch. Jede Pille
+ * trägt eine passing/failing-Klasse, damit der User auf einen Blick
+ * erkennt, ob dieses Szenario Bestehensregel (IPA ≥ 4 ∧ Gesamt ≥ 4)
+ * trifft. Reine Read-only-Pillen — keine Tap-Aktion. */
+function buildQvWhatIf(bk, me) {
   const wrap = document.createElement('div');
   wrap.className = 'm-stats-ipa__whatif';
 
@@ -995,7 +1055,7 @@ function buildQvWhatIf(bk) {
   row.className = 'm-stats-ipa__whatif-row';
   const SCENARIOS = [5.0, 5.5, 6.0];
   SCENARIOS.forEach((ipa) => {
-    const gesamt = (3 * ipa + 5 * bk.rounded) / 8;
+    const gesamt = (ipa * 0.4 + bk.rounded * 0.3 + me.rounded * 0.1) / 0.8;
     const gesamtR = Math.round(gesamt * 10) / 10;
     const passed = ipa >= 4 && gesamtR >= 4;
 
