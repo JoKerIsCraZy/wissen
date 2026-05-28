@@ -4,11 +4,20 @@
    - App shell (HTML/CSS/JS/Icons): cache-first, refreshed in background
    - API responses (/api/*): network-only — never cache (always fresh,
      never serve auth-protected JSON from cache by accident)
+   - Ausnahme „Offline-Glance": die 3 read-only-GET-Endpoints
+     /api/noten, /api/stundenplan, /api/stats sind network-first mit
+     cache-fallback. Online = immer frisch (401/429/Fehler tauchen normal
+     auf, nur 200 wird gecacht), offline = letzter Stand mit X-WN-Offline.
    ============================================================ */
 'use strict';
 
-const VERSION = 'wn-9';
+const VERSION = 'wn-10';
 const SHELL_CACHE = 'wn-shell-' + VERSION;
+const API_CACHE = 'wn-api-' + VERSION;
+
+// Nur diese read-only-GETs sind offline-fähig (exakte pathname-Gleichheit).
+// Eigene Noten auf dem eigenen Gerät → threat-model-konform.
+const OFFLINE_GLANCE_PATHS = ['/api/noten', '/api/stundenplan', '/api/stats'];
 
 const SHELL_URLS = [
   '/mobile/',
@@ -59,13 +68,16 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(keys.filter(k => k !== SHELL_CACHE).map(k => caches.delete(k)));
+    // SHELL_CACHE und API_CACHE der aktuellen VERSION behalten, alles andere löschen.
+    await Promise.all(
+      keys.filter(k => k !== SHELL_CACHE && k !== API_CACHE).map(k => caches.delete(k))
+    );
     await self.clients.claim();
     // Notify all open clients that a new SW has taken over → der Client
     // zeigt einen Reload-Toast. Wir broadcasten nur wenn alte Caches
     // tatsächlich entfernt wurden (Indikator: es gab andere Cache-Keys),
     // damit der erste Install keinen falschen Update-Toast triggert.
-    const hadOldCaches = keys.some((k) => k !== SHELL_CACHE);
+    const hadOldCaches = keys.some((k) => k !== SHELL_CACHE && k !== API_CACHE);
     if (hadOldCaches) {
       const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
       clients.forEach((c) => {
@@ -84,7 +96,38 @@ self.addEventListener('fetch', (event) => {
   // Same-origin only
   if (url.origin !== self.location.origin) return;
 
+  // Offline-Glance: nur die 3 read-only-GETs sind network-first + cache-fallback.
+  // Online → immer frisch (nur 200 wird gecacht, 401/429/Fehler tauchen normal auf).
+  // Offline → letzter gecachter Stand, markiert via X-WN-Offline, damit der Client
+  // „Stand von ..." anzeigen kann. match() inkl. query → pro Filter eigener Eintrag.
+  if (OFFLINE_GLANCE_PATHS.includes(url.pathname)) {
+    event.respondWith((async () => {
+      try {
+        const fresh = await fetch(req);
+        if (fresh && fresh.status === 200) {
+          (await caches.open(API_CACHE)).put(req, fresh.clone()).catch(() => {});
+        }
+        return fresh;
+      } catch (_) {
+        const cache = await caches.open(API_CACHE);
+        const cached = await cache.match(req);
+        if (cached) {
+          const buf = await cached.clone().arrayBuffer();
+          const headers = new Headers(cached.headers);
+          headers.set('X-WN-Offline', '1');
+          return new Response(buf, { status: 200, statusText: 'OK (cache)', headers });
+        }
+        return new Response(JSON.stringify({ error: 'offline' }), {
+          status: 503,
+          headers: { 'Content-Type': 'application/json', 'X-WN-Offline': '1' }
+        });
+      }
+    })());
+    return;
+  }
+
   // API: never cache. Let it go to network so 401/429 surface correctly.
+  // Alle übrigen /api/* bleiben unverändert network-only.
   if (url.pathname.startsWith('/api/')) return;
 
   // Shell: cache-first, then update in background.
