@@ -16,6 +16,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { getStats, getNoten } from '$lib/api/endpoints';
   import { pushToast } from '$lib/stores/toast.svelte';
+  import { benoetigteIpa } from '$lib/utils/qv-goalseek.js';
   import type {
     StatsResponse,
     NotenResponse,
@@ -556,6 +557,24 @@
   /* Modul-Listen-Toggles persistiert pro Box. */
   let bkListOpen = $state(false);
   let meListOpen = $state(false);
+
+  /* Zielnoten-Rechner: die interaktive Umkehrung der Was-wäre-wenn-Pillen.
+   * Statt fixer IPA → Gesamtnote fragt er rückwärts: welche IPA brauche ich
+   * (mindestens), damit die QV-Gesamtnote mein Ziel hält? Die Goal-Seek-
+   * Logik liegt in $lib/utils/qv-goalseek.js (über das echte 0.1-Raster
+   * iteriert, deckungsgleich mit der Forward-Formel oben). */
+  const ZIEL_PRESETS = [4.0, 4.5, 5.0, 5.5] as const;
+  let zielNote = $state<number>(4.0);
+  const goalSeek = $derived(benoetigteIpa(zielNote, bk.rounded, me.rounded));
+  /* Bestehensregel (IPA ≥ 4.0) ist von der reinen Ziel-Rechnung getrennt:
+   * goalSeek zielt nur auf die Gesamtnote. Wer eine 4.0-Gesamt schon mit
+   * IPA 3.x hielte, muss zum *Bestehen* trotzdem IPA ≥ 4.0 schaffen — der
+   * Hinweis macht das explizit, ohne die zwei Begriffe zu vermischen. */
+  const needsPassFloor = $derived<boolean>(
+    goalSeek.status === 'reachable'
+      && zielNote >= 4
+      && (goalSeek.requiredIpa as number) < 4,
+  );
 </script>
 
 <svelte:head>
@@ -1020,6 +1039,61 @@
             {/each}
           </div>
         </div>
+      {/if}
+    </div>
+
+    <!-- Zielnoten-Rechner: rückwärts gerechnet. Preset-Chips wählen das
+         Ziel, der Goal-Seek liefert die kleinste passende IPA. Vier
+         Zustände, jeder über Wort + Form + Farbe codiert (nie Farbe
+         allein): reachable / secured / impossible / unknown. -->
+    <div class="ipa__goalseek" role="group" aria-labelledby="goalseek-label">
+      <div class="ipa__goalseek-head">
+        <span class="ipa__goalseek-label" id="goalseek-label">Zielnoten-Rechner</span>
+        <div class="ipa__goalseek-presets" role="radiogroup" aria-label="Ziel-Gesamtnote">
+          {#each ZIEL_PRESETS as preset (preset)}
+            <button
+              type="button"
+              role="radio"
+              aria-checked={zielNote === preset}
+              class="ipa__goalseek-chip mono"
+              class:is-active={zielNote === preset}
+              onclick={() => (zielNote = preset)}
+            >
+              {preset.toFixed(1)}
+            </button>
+          {/each}
+        </div>
+      </div>
+
+      {#if goalSeek.status === 'reachable'}
+        <p class="ipa__goalseek-answer">
+          <span class="ipa__goalseek-mark ipa__goalseek-mark--reach" aria-hidden="true">→</span>
+          Für Gesamtnote {zielNote.toFixed(1)} brauchst du eine IPA von
+          <span class="ipa__goalseek-ipa mono">
+            ≥&nbsp;{(goalSeek.requiredIpa as number).toFixed(1)}
+          </span>
+          {#if needsPassFloor}
+            <span class="ipa__goalseek-floor">(zum Bestehen ohnehin IPA ≥ 4.0 nötig)</span>
+          {/if}
+        </p>
+      {:else if goalSeek.status === 'secured'}
+        <p class="ipa__goalseek-answer ipa__goalseek-answer--secured">
+          <span class="ipa__goalseek-mark ipa__goalseek-mark--ok" aria-hidden="true">✓</span>
+          Schon gesichert: selbst IPA 1.0 hält {zielNote.toFixed(1)}.
+        </p>
+      {:else if goalSeek.status === 'impossible'}
+        <p class="ipa__goalseek-answer ipa__goalseek-answer--impossible">
+          <span class="ipa__goalseek-mark ipa__goalseek-mark--fail" aria-hidden="true">✗</span>
+          Mit BK&nbsp;{(bk.rounded as number).toFixed(1)} · M+E&nbsp;{(me.rounded as number).toFixed(1)}
+          nicht erreichbar: selbst IPA 6.0 ergibt nur
+          <span class="ipa__goalseek-ceiling mono {gradeClass(goalSeek.gesamt)}">
+            {(goalSeek.gesamt as number).toFixed(1)}
+          </span>.
+        </p>
+      {:else}
+        <p class="ipa__goalseek-answer ipa__goalseek-answer--unknown">
+          BK-/M+E-Schnitt fehlt noch.
+        </p>
       {/if}
     </div>
 
@@ -1700,6 +1774,128 @@
   .whatif__gesamt {
     font-weight: 700;
     font-size: 14px;
+  }
+
+  /* ---- Zielnoten-Rechner ----
+   * Interaktive Umkehrung der Was-wäre-wenn-Pillen. Eigene Surface-Box
+   * (kein verschachtelter Card-in-Card), damit die Antwort-Zeile ruhig
+   * steht und der Preset-Wechsel klar als eigene Interaktion liest.
+   * Zustände tragen Bedeutung über Glyph (→ / ✓ / ✗) + Wort, nicht nur
+   * über Farbe. */
+  .ipa__goalseek {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px 16px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--r-md);
+    margin-bottom: 16px;
+  }
+  .ipa__goalseek-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .ipa__goalseek-label {
+    font-size: 11px;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    font-weight: 600;
+  }
+  .ipa__goalseek-presets {
+    display: inline-flex;
+    gap: 6px;
+  }
+  .ipa__goalseek-chip {
+    padding: 6px 13px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text-mute);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    transition: color var(--t-fast) var(--ease),
+                background var(--t-fast) var(--ease),
+                border-color var(--t-fast) var(--ease),
+                transform var(--t-fast) var(--ease);
+  }
+  .ipa__goalseek-chip.is-active {
+    color: var(--accent);
+    background: var(--accent-soft-strong);
+    border-color: var(--accent-border);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .ipa__goalseek-chip:hover {
+      color: var(--text);
+      border-color: var(--border-strong);
+    }
+    .ipa__goalseek-chip.is-active:hover {
+      color: var(--accent-hover);
+    }
+  }
+  .ipa__goalseek-chip:active { transform: scale(0.97); }
+
+  /* Antwort-Zeile: crossfadet beim Preset-Wechsel über opacity (Svelte
+   * re-mountet den #if-Branch, der @starting-style greift). Bedeutung
+   * sitzt im Wort + Glyph; die Tönung ist nur Verstärkung. */
+  .ipa__goalseek-answer {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 6px;
+    opacity: 1;
+    transition: opacity var(--t) var(--ease);
+
+    @starting-style {
+      opacity: 0;
+    }
+  }
+  .ipa__goalseek-answer--unknown {
+    color: var(--text-dim);
+    font-size: 13px;
+  }
+  .ipa__goalseek-mark {
+    font-weight: 700;
+    font-size: 13px;
+  }
+  .ipa__goalseek-mark--reach { color: var(--text-dim); }
+  .ipa__goalseek-mark--ok    { color: var(--success); }
+  .ipa__goalseek-mark--fail  { color: var(--danger); }
+  .ipa__goalseek-ipa {
+    /* Neutrale Akzent-Farbe (Cornflower), NICHT gradeClass: die benötigte
+     * IPA ist eine Schwelle, kein erreichter Notenwert — eine niedrige
+     * Schwelle ist gut und darf nicht in der Fail-Ampel-Farbe (rot)
+     * erscheinen. Gut/Schlecht trägt der Verdict-Zustand (Pfeil/✓/✗). */
+    color: var(--accent);
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: 0.01em;
+  }
+  .ipa__goalseek-ceiling {
+    font-weight: 700;
+    font-size: 15px;
+  }
+  .ipa__goalseek-floor {
+    flex-basis: 100%;
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ipa__goalseek-chip { transition: none; }
+    .ipa__goalseek-chip:active { transform: none; }
+    .ipa__goalseek-answer {
+      transition: none;
+    }
   }
 
   .ipa__note {

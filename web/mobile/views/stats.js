@@ -20,9 +20,14 @@
  * selbst). touched bleibt als reserviertes Objekt, um die State-Shape
  * stabil zu halten falls künftig wieder Prefills nötig werden. */
 const statsState = {
-  qv: { a: 4.5, b: 4.5, c: 4.5 },
+  qv: { a: 4.5, b: 4.5, c: 4.5, ziel: 4.0 },
   touched: {},
 };
+
+/* Ziel-Presets für den Zielnoten-Rechner. 4.0 = Bestehensgrenze (Default),
+ * darüber die üblichen Zwischenziele. Bewusst kein 6.0 — bei BK/M+E unter
+ * Maximum ist 6.0 fast immer „impossible" und der Chip wäre toter Platz. */
+const QV_ZIEL_PRESETS = [4.0, 4.5, 5.0, 5.5];
 
 /* Sparkline-Geometrie (Pixel im SVG-Koordinatensystem — viewBox 220×48 wird
  * vom Browser auf die tatsächliche Pixelbreite gestreckt). */
@@ -36,6 +41,7 @@ function ensureQvDefaults() {
   if (statsState.qv.a == null) statsState.qv.a = 4.5;
   if (statsState.qv.b == null) statsState.qv.b = 4.5;
   if (statsState.qv.c == null) statsState.qv.c = 4.5;
+  if (statsState.qv.ziel == null) statsState.qv.ziel = 4.0;
 }
 
 async function renderStats() {
@@ -1031,8 +1037,173 @@ function buildQvResult(bk, me) {
   // keine konsistente Note. Read-only-Display, kein Tap-Handler.
   if (hasBk && hasMe) {
     result.append(buildQvWhatIf(bk, me));
+
+    // Zielnoten-Rechner: eigener Host, damit ein Chip-Tap nur diesen
+    // Bereich neu zeichnet und den IPA-Input-Focus nicht stört. (Der
+    // Goal-Seek hängt nur an BK + M+E + Ziel, nicht an den IPA-Inputs.)
+    const goalHost = document.createElement('div');
+    goalHost.className = 'm-stats-ipa__goalseek-host';
+    goalHost.style.flexBasis = '100%';
+    goalHost.append(buildQvGoalSeek(bk, me, goalHost));
+    result.append(goalHost);
   }
   return result;
+}
+
+/* ------------------------------------------------------------------ */
+/* QV-Zielnoten-Rechner — Goal-Seek über das 0.1-Noten-Raster.        */
+/*                                                                    */
+/* Verbatim gespiegelt aus web-svelte/src/lib/utils/qv-goalseek.js.   */
+/* Spezifikation + Tests: test/unit/qvGoalseek.test.mjs. Die zwei     */
+/* reinen Funktionen MÜSSEN identisch zur Desktop-Quelle bleiben —    */
+/* beide Surfaces teilen sich dieselbe ausführbare Spec.              */
+/*                                                                    */
+/* Warum iterieren statt Formel-Umkehrung: die QV-Pipeline rundet     */
+/* ZWEIMAL (IPA → 0.1, dann Gesamt → 0.1). Eine algebraische          */
+/* Umkehrung trifft die gerundete Stufe nicht zuverlässig. Das        */
+/* 51-Schritt-Raster (1.0–6.0) ist deckungsgleich mit der Forward-    */
+/* Berechnung und damit garantiert konsistent.                        */
+/* ------------------------------------------------------------------ */
+function qvGesamt(ipa, bkRounded, meRounded) {
+  return Math.round(((ipa * 0.4 + bkRounded * 0.3 + meRounded * 0.1) / 0.8) * 10) / 10;
+}
+function benoetigteIpa(ziel, bkRounded, meRounded) {
+  if (bkRounded == null || meRounded == null || ziel == null || !Number.isFinite(ziel)) {
+    return { status: 'unknown', requiredIpa: null, gesamt: null };
+  }
+  for (let i = 10; i <= 60; i += 1) {
+    const ipa = i / 10;
+    const ges = qvGesamt(ipa, bkRounded, meRounded);
+    if (ges >= ziel) {
+      return {
+        status: i === 10 ? 'secured' : 'reachable',
+        requiredIpa: Math.round(ipa * 10) / 10,
+        gesamt: ges,
+      };
+    }
+  }
+  return { status: 'impossible', requiredIpa: null, gesamt: qvGesamt(6.0, bkRounded, meRounded) };
+}
+
+/* Baut den Zielnoten-Block: Preset-Chips + Live-Verdikt.
+ *
+ * host ist der Container, den ein Chip-Tap neu befüllt — so bleibt der
+ * Re-Render lokal und der IPA-Input-Focus unberührt. Der Block rendert
+ * nur, wenn beide Schnitte da sind (Aufruf in buildQvResult bewacht das);
+ * dadurch ist benoetigteIpa hier nie 'unknown' wegen fehlender Schnitte
+ * — der unknown-Zweig fängt nur einen kaputten Ziel-State ab. */
+function buildQvGoalSeek(bk, me, host) {
+  const wrap = document.createElement('div');
+  wrap.className = 'm-stats-ipa__goalseek';
+
+  const lab = document.createElement('div');
+  lab.className = 'm-stats-ipa__goalseek-label';
+  lab.id = 'qvZielLabel';
+  lab.textContent = 'Zielnote';
+  wrap.append(lab);
+
+  const ziel = isValid(statsState.qv.ziel) ? statsState.qv.ziel : 4.0;
+
+  // Preset-Chips als Radiogroup: genau ein aktives Ziel. aria-pressed
+  // trägt den Zustand für Screenreader; der aktive Chip ist zusätzlich
+  // visuell (accent-tint) UND per Text klar — nicht nur Farbe.
+  const chips = document.createElement('div');
+  chips.className = 'm-stats-ipa__goalseek-chips';
+  chips.setAttribute('role', 'radiogroup');
+  chips.setAttribute('aria-labelledby', 'qvZielLabel');
+
+  QV_ZIEL_PRESETS.forEach((preset) => {
+    const active = Math.abs(preset - ziel) < 0.001;
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'm-stats-ipa__goalseek-chip mono'
+      + (active ? ' is-active' : '');
+    chip.setAttribute('role', 'radio');
+    chip.setAttribute('aria-checked', active ? 'true' : 'false');
+    chip.setAttribute('aria-label', 'Zielnote ' + preset.toFixed(1));
+    chip.textContent = preset.toFixed(1);
+    chip.addEventListener('click', () => {
+      statsState.qv.ziel = preset;
+      // Nur den Goal-Seek-Host neu zeichnen — IPA-Inputs bleiben unberührt.
+      host.replaceChildren(buildQvGoalSeek(bk, me, host));
+    });
+    chips.append(chip);
+  });
+  wrap.append(chips);
+
+  wrap.append(buildQvGoalSeekVerdict(bk, me, ziel));
+  return wrap;
+}
+
+/* Verdikt-Zeile zu einem gewählten Ziel. Vier Zustände, jeweils mit Wort
+ * UND Form (Tonal-Klasse), nie nur Farbe:
+ *   reachable  → benötigte IPA als grade-getönter mono-Chip
+ *   secured    → ok-Ton, „schon gesichert"
+ *   impossible → fail-Ton, max erreichbare Gesamtnote genannt
+ *   unknown    → dezent (sollte mit vorhandenen Schnitten nicht auftreten) */
+function buildQvGoalSeekVerdict(bk, me, ziel) {
+  const res = benoetigteIpa(ziel, bk.rounded, me.rounded);
+
+  const verdict = document.createElement('div');
+  verdict.className = 'm-stats-ipa__goalseek-verdict '
+    + 'm-stats-ipa__goalseek-verdict--' + res.status;
+  verdict.setAttribute('role', 'status');
+  verdict.setAttribute('aria-live', 'polite');
+
+  const zielStr = ziel.toFixed(1);
+
+  if (res.status === 'reachable') {
+    const text = document.createElement('span');
+    text.className = 'm-stats-ipa__goalseek-text';
+    text.append(document.createTextNode('Dafür brauchst du IPA ≥ '));
+
+    const ipaChip = document.createElement('span');
+    // Neutrale Akzent-Farbe statt gradeClass: die benötigte IPA ist eine
+    // Schwelle, kein erreichter Notenwert — eine niedrige Schwelle ist gut
+    // und darf nicht rot (Fail-Ampel) erscheinen. Gut/Schlecht trägt der
+    // Verdict-Zustand (--reachable/--secured/--impossible).
+    ipaChip.className = 'm-stats-ipa__goalseek-ipachip mono';
+    ipaChip.textContent = res.requiredIpa.toFixed(1);
+    text.append(ipaChip);
+
+    verdict.append(text);
+
+    // Hinweis: Ziel ≥ 4 ist erreichbar, aber die nötige IPA liegt unter der
+    // Bestehensgrenze 4.0 — fürs reine Bestehen zählt IPA ≥ 4.0 trotzdem.
+    if (ziel >= 4 && res.requiredIpa < 4) {
+      const hint = document.createElement('span');
+      hint.className = 'm-stats-ipa__goalseek-hint';
+      hint.textContent = '(zum Bestehen ohnehin IPA ≥ 4.0)';
+      verdict.append(hint);
+    }
+    verdict.setAttribute('aria-label',
+      'Ziel ' + zielStr + ': benötigt IPA mindestens '
+      + res.requiredIpa.toFixed(1));
+  } else if (res.status === 'secured') {
+    const text = document.createElement('span');
+    text.className = 'm-stats-ipa__goalseek-text';
+    text.textContent = 'Schon gesichert — selbst IPA 1.0 hält ' + zielStr + '.';
+    verdict.append(text);
+    verdict.setAttribute('aria-label',
+      'Ziel ' + zielStr + ' ist schon mit der kleinsten IPA gesichert');
+  } else if (res.status === 'impossible') {
+    const maxStr = res.gesamt != null ? res.gesamt.toFixed(1) : '–';
+    const text = document.createElement('span');
+    text.className = 'm-stats-ipa__goalseek-text';
+    text.textContent = 'Mit BK ' + bk.rounded.toFixed(1)
+      + ' · M+E ' + me.rounded.toFixed(1)
+      + ' nicht erreichbar (max ' + maxStr + ').';
+    verdict.append(text);
+    verdict.setAttribute('aria-label',
+      'Ziel ' + zielStr + ' nicht erreichbar, maximal ' + maxStr);
+  } else {
+    const text = document.createElement('span');
+    text.className = 'm-stats-ipa__goalseek-text';
+    text.textContent = 'Ziel wählen.';
+    verdict.append(text);
+  }
+
+  return verdict;
 }
 
 /* Was-wäre-wenn-Pillen unter dem Result.
