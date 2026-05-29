@@ -8,6 +8,24 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { parseGewichtPct } = require('./db/parsers');
+
+// ---------- Absenzen-Konfig-Konstanten (Phase-0 bestätigt/justiert) ----------
+// Diese drei Werte sind die einzigen echten Unbekannten des Absenzen-Slices
+// (s. Spec §7 + §14 — Live-Spike). Sie sind hier zentral abgelegt, damit ein
+// einziger Live-Lauf die TODOs schließen kann, ohne die Parser anzufassen.
+//
+// ABSENZEN_DETAIL_PATH : der Pfad-Teil der Detail-URL (analog zum Noten-Pfad
+//   '/extranet/Meine-Bildung/Noten-für-Studierende'). Wird mit ?nocache=…
+//   + ABSENZEN_DETAIL_HASH(id) zur vollen Detail-URL zusammengesetzt.
+// ABSENZEN_DETAIL_HASH : baut das URL-Hash-Fragment, das Tocco als Detail-
+//   Trigger erkennt. Live-Spike 2026-05-29: '#detail&key=<RegistrationPK>',
+//   KEIN id=/input_type= (anders als Noten). key= ohne &name= reicht.
+// ABSENZEN_DWR_CODE_RE : extrahiert das Kurzbezeichnung-Token (z.B.
+//   'UIFZ-2524-020-S1-UEK-106') aus der DWR-Response — Join-Key Übersicht↔Detail.
+const ABSENZEN_DETAIL_PATH = '/extranet/Meine-Bildung/Absenzen-für-Studierenden'; // Live-Spike 2026-05-29: gleicher Pfad wie Übersicht, Plural "Studierenden"
+const ABSENZEN_DETAIL_HASH = (key) => '#detail&key=' + key; // Live-Spike 2026-05-29: key=<RegistrationPK>, KEIN id=/input_type=
+const ABSENZEN_DWR_CODE_RE = /[A-Z]{2,}-\d{2,}-[\w-]+/; // Kurzbezeichnung (Spec §7)
 
 // ---------- Security Helpers ----------
 // Entfernt sensitive Query-Parameter aus Fehlermeldungen / URLs.
@@ -93,7 +111,7 @@ async function safeEvaluate(page, fn, ...rest) {
 function requirePlaywright() {
   try { return require('playwright').chromium; }
   catch (e) {
-    throw new Error('Playwright nicht installiert. Führe zuerst aus: npm install && npx playwright install chromium');
+    throw new Error('Playwright nicht installiert. Führe zuerst aus: npm install && npx playwright install chromium', { cause: e });
   }
 }
 
@@ -429,7 +447,7 @@ async function ensureLoggedIn(config, onLog, onPhase, onBrowser) {
       } catch (_) {}
     }
     await closeBrowserSafe(browser);
-    throw new Error('Login fehlgeschlagen: ' + redact(e.message || ''));
+    throw new Error('Login fehlgeschlagen: ' + redact(e.message || ''), { cause: e });
   }
 }
 
@@ -471,8 +489,12 @@ async function waitForToccoLoad(page, label, onLog) {
   await page.waitForTimeout(600);
 }
 
-async function setPageSize(page, size, onLog) {
-  onLog('🔢 Setze Seitengröße auf ' + size + '...', 'info');
+async function setPageSize(page, size, onLog, label) {
+  // Label-Prefix, damit die 3 parallelen Page-Loads (Noten/Stundenplan/Absenzen)
+  // in den Logs unterscheidbar sind — vorher liefen 3x „Setze Seitengröße…"
+  // ohne Zuordnung.
+  const tag = label ? '[' + label + '] ' : '';
+  onLog(tag + '🔢 Setze Seitengröße auf ' + size + '...', 'info');
 
   // Finde den Page-Size Combobox über Nachbarschaft zu "Anzeige Eintrag"-Text
   const inputInfo = await safeEvaluate(page, () => {
@@ -497,17 +519,17 @@ async function setPageSize(page, size, onLog) {
   });
 
   if (!inputInfo.found) {
-    onLog('  ⚠️  ' + inputInfo.reason, 'warn');
+    onLog(tag + '  ⚠️  ' + inputInfo.reason, 'warn');
     return false;
   }
-  onLog('  Input gefunden (aktueller Wert: ' + inputInfo.currentValue + ')', 'info');
+  onLog(tag + '  Input gefunden (aktueller Wert: ' + inputInfo.currentValue + ')', 'info');
 
   const sel = '#' + inputInfo.id;
   await page.click(sel, { clickCount: 3 }).catch(() => {});
   await page.fill(sel, '').catch(() => {});
   await page.type(sel, String(size), { delay: 50 });
   await page.keyboard.press('Enter');
-  onLog('  ✓ ' + size + ' eingegeben + Enter', 'info');
+  onLog(tag + '  ✓ ' + size + ' eingegeben + Enter', 'info');
   return true;
 }
 
@@ -634,6 +656,239 @@ function parseStundenplan(text) {
   return entries;
 }
 
+// ---------- Absenzen-Parser (anker-getrieben, NICHT als Noten-Klon) ----------
+// Übersichtsseite (innerText). Erwartetes Layout:
+//   Kurzbezeichnung   Typ   Bezeichnung   SOLL   Besucht   Minimalanwesenheit   Anwesenheit
+//   UIFZ-2524-020-S1-UEK-106   GE Überbetrieblicher Kurs   106 - Datenbanken
+//     abfragen, …   45   45   90%   100%
+//
+// Record-Anker = Kurzbezeichnung-Code (ABSENZEN_DWR_CODE_RE am Zeilenanfang).
+// Spalten in fixer Reihenfolge; `Bezeichnung` kann mehrzeilig/abgeschnitten
+// sein → bis zum nächsten SOLL-Integer sammeln (analog parsePruefungen, das
+// die Gewicht-Spalte am '%' erkennt statt feste Spalten zu zählen).
+function parseAbsenzenOverview(text) {
+  if (!text) return [];
+  const lines = text.split('\n').map(l => l.replace(/\t/g, '').trim()).filter(Boolean);
+
+  // Record-Anker: eine Zeile, die NUR aus einem Kurzbezeichnung-Code besteht.
+  // ^…$ verhindert, dass eine Bezeichnungs-Zeile mit eingebettetem Code als
+  // neuer Record fehlinterpretiert wird.
+  const codeLineRe = new RegExp('^' + ABSENZEN_DWR_CODE_RE.source + '$');
+  // Typ-Zeile, z.B. "GE Modul" / "GE Überbetrieblicher Kurs".
+  const intRe = /^\d+$/;
+  // Footer-/Pagination-Marker (gespiegelt von parseStundenplan).
+  const stopMarkers = /^(Seite|Anzeige Eintrag|DIREKT ZU|Copyright|WISS & SOCIAL|RECHTLICHES|zu unserem|Datenschutz|Allg\.|Alle Rechte|Ein Unternehmen|Kalaidos)/i;
+
+  // Semester aus dem Code ableiten (…-S1-…) — wie parseKuerzel, aber lokal,
+  // weil der Code hier ein einzelnes Token (kein " / "-getrenntes kuerzel) ist.
+  function semesterFromCode(code) {
+    const m = code.match(/-S(\d+)-/);
+    return m ? 'S' + m[1] : null;
+  }
+
+  // Sammelt einen Record ab Index `start` (der Code-Zeile) und liefert
+  // { entry, next } (next = Index der nächsten zu prüfenden Zeile).
+  function collectRecord(start) {
+    const kuerzel_code = lines[start];
+    // buf = alle Zeilen NACH dem Code bis zum nächsten Code/Stop.
+    const buf = [];
+    let i = start + 1;
+    for (; i < lines.length; i++) {
+      const l = lines[i];
+      if (codeLineRe.test(l) || stopMarkers.test(l)) break;
+      buf.push(l);
+    }
+    // buf-Layout: [ Typ-Token(s)…, Bezeichnung-Zeile(n)…, SOLL, Besucht,
+    //              Minimal-%, Anwesenheit-% ]. Wir gehen von HINTEN, weil die
+    //              letzten vier Spalten zuverlässig numerisch/%-förmig sind:
+    //   anwesenheit (% am Ende) · minimal (% am Ende) · besucht (int) · soll (int)
+    // Die ersten zwei numerischen Felder von vorne sind SOLL/Besucht; alles
+    // davor (ab buf[0]) ist Typ + Bezeichnung.
+    const sollIdx = buf.findIndex(l => intRe.test(l));
+    if (sollIdx < 1) {
+      // Kein SOLL gefunden oder direkt am Anfang (= kein Typ/Bezeichnung) →
+      // defekter Record, überspringen.
+      return { entry: null, next: i };
+    }
+    const typ = buf[0] || '';
+    const bezeichnung = buf.slice(1, sollIdx).join(' ').trim();
+    const soll = parseGewichtPct(buf[sollIdx]);
+    const besucht = parseGewichtPct(buf[sollIdx + 1]);
+    // Die beiden %-Spalten: erstes %-Feld nach besucht = Minimal, letztes = Ist.
+    let minimal_pct = null;
+    let anwesenheit_pct_scraped = null;
+    const pctVals = [];
+    for (let j = sollIdx + 2; j < buf.length; j++) {
+      if (/%/.test(buf[j])) pctVals.push(parseGewichtPct(buf[j]));
+    }
+    if (pctVals.length >= 2) {
+      minimal_pct = pctVals[0];
+      anwesenheit_pct_scraped = pctVals[pctVals.length - 1];
+    } else if (pctVals.length === 1) {
+      // Nur ein %-Wert sichtbar → konservativ als Ist werten (Minimal nullable).
+      anwesenheit_pct_scraped = pctVals[0];
+    }
+
+    return {
+      entry: {
+        kuerzel_code,
+        typ,
+        bezeichnung,
+        semester: semesterFromCode(kuerzel_code),
+        soll,
+        besucht,
+        minimal_pct,
+        anwesenheit_pct_scraped
+      },
+      next: i
+    };
+  }
+
+  const entries = [];
+  let i = 0;
+  while (i < lines.length) {
+    if (stopMarkers.test(lines[i])) break;
+    if (codeLineRe.test(lines[i])) {
+      const { entry, next } = collectRecord(i);
+      if (entry) entries.push(entry);
+      i = next;
+    } else {
+      i++;
+    }
+  }
+  return entries;
+}
+
+// Deutsches Langdatum + Zeitspanne → ISO + Zeiten.
+//   'Montag, 13. Oktober 2025, 08:30 - 12:00'
+//     → { termin_iso:'2025-10-13', zeit_von:'08:30', zeit_bis:'12:00' }
+// parsers.js parseDatum (DD.MM.YY) reicht NICHT — hier sind deutsche
+// Monatsnamen + Wochentag-Präfix im Spiel. Trennzeichen '-'/'–' tolerieren.
+// Rückgabe null bei nicht-parsebarem Input (Caller behandelt das defensiv).
+function parseTerminLangDatum(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+  const MONATE = {
+    januar: 1, februar: 2, 'märz': 3, maerz: 3, april: 4, mai: 5, juni: 6,
+    juli: 7, august: 8, september: 9, oktober: 10, november: 11, dezember: 12
+  };
+  // Tag · Monatsname · Jahr (Wochentag-Präfix optional/ignoriert). Ein
+  // optionales Komma zwischen Monat und Jahr wird toleriert (kann durch
+  // Zell-Umbruch im innerText entstehen, z.B. 'Oktober, 2025').
+  const dm = raw.match(/(\d{1,2})\.\s*([A-Za-zÄÖÜäöü]+),?\s+(\d{4})/);
+  if (!dm) return null;
+  const tag = parseInt(dm[1], 10);
+  const monatName = dm[2].toLowerCase();
+  const monat = MONATE[monatName];
+  const jahr = parseInt(dm[3], 10);
+  if (!monat || !Number.isFinite(tag) || !Number.isFinite(jahr)) return null;
+  // Zeitspanne: HH:MM [-–] HH:MM (Bindestrich oder Gedankenstrich).
+  const tm = raw.match(/(\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})/);
+  const pad = (n) => String(n).padStart(2, '0');
+  const padTime = (t) => {
+    const mm = t.match(/^(\d{1,2}):(\d{2})$/);
+    return mm ? pad(parseInt(mm[1], 10)) + ':' + mm[2] : t;
+  };
+  return {
+    termin_iso: jahr + '-' + pad(monat) + '-' + pad(tag),
+    zeit_von: tm ? padTime(tm[1]) : '',
+    zeit_bis: tm ? padTime(tm[2]) : ''
+  };
+}
+
+// Detail-Tabelle einer Modul-Absenz (innerText). Erwartetes Layout:
+//   Termin   Lektionen Soll   Lektionen Ist   Anwesenheit (%)   Status
+//   Montag, 13. Oktober 2025, 08:30 - 12:00   4.00   4.00   100%   Teilgenommen
+//   Dienstag, 14. Oktober 2025, 13:30 - 17:00   4.00   0.00   0%
+//     Nicht teilgenommen unentschuldigt
+//
+// Record-TRENNER = deutscher Wochentag/Langdatum (NICHT Spalten-Zählung):
+//   sobald eine Zeile mit "<Wochentag>," beginnt, startet ein neuer Record.
+// Innerhalb: Termin-Zeile → parseTerminLangDatum; danach Lektionen Soll/Ist
+// (Dezimal 4.00), Anwesenheit %, Status (Rest-Wort/Phrase). Status wird ROH
+// emittiert — Normalisierung ist Sache des DB-Slices (normalizeAbsenzStatus).
+function parseAbsenzLektionen(text) {
+  if (!text) return [];
+  const lines = text.split('\n').map(l => l.replace(/\t/g, '').trim()).filter(Boolean);
+
+  const weekdayRe = /^(Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag),/i;
+  const decRe = /^\d+(?:[.,]\d+)?$/;       // Lektionen-Dezimal (4.00 / 0.00)
+  const pctRe = /%/;                       // Anwesenheit-%
+  const stopMarkers = /^(Zur(ü|ue)ck|Seite|Anzeige Eintrag|DIREKT ZU|Copyright|WISS|RECHTLICHES|zu unserem|Datenschutz|Allg\.|Alle Rechte|Ein Unternehmen|Kalaidos)/i;
+
+  // Sammelt die rohen Zeilen eines Records (ab Wochentag-Zeile bis zum nächsten
+  // Wochentag/Stop) und mappt sie auf den Lektion-Eintrag.
+  function commitRecord(buf) {
+    if (!buf.length) return null;
+    // Die Termin-Beschreibung kann über mehrere Zeilen brechen, falls Tocco
+    // sie umbricht — wir nehmen so viele führende Nicht-Dezimal-/Nicht-%-Zeilen
+    // wie nötig, bis die erste Dezimalzahl (Lektionen Soll) auftaucht.
+    let k = 0;
+    const terminParts = [];
+    while (k < buf.length && !decRe.test(buf[k]) && !pctRe.test(buf[k])) {
+      terminParts.push(buf[k]);
+      k++;
+    }
+    // Mehrere Termin-Zeilen entstehen NUR durch Tocco-Umbruch innerhalb einer
+    // Zelle (kein eigenes Trennzeichen) → mit Space joinen, Mehrfach-Spaces
+    // kollabieren. Ein Komma-Join würde 'Oktober' + '2025' fälschlich zu
+    // 'Oktober, 2025' machen und parseTerminLangDatum brechen.
+    const termin_raw = terminParts.join(' ').replace(/\s+/g, ' ').trim();
+    const parsed = parseTerminLangDatum(termin_raw) || { termin_iso: '', zeit_von: '', zeit_bis: '' };
+
+    // Ab k: erste Dezimalzahl = Soll, zweite = Ist, %-Zeile = Anwesenheit,
+    //       Rest (zusammengefügt) = Status-Rohstring.
+    const decs = [];
+    let anwesenheit_pct = null;
+    const statusParts = [];
+    for (let j = k; j < buf.length; j++) {
+      const l = buf[j];
+      if (pctRe.test(l) && anwesenheit_pct == null) {
+        anwesenheit_pct = parseGewichtPct(l);
+      } else if (decRe.test(l) && decs.length < 2) {
+        decs.push(parseGewichtPct(l));
+      } else {
+        // Alles andere ist Status-Text (kann mehrzeilig sein).
+        statusParts.push(l);
+      }
+    }
+
+    return {
+      termin_iso: parsed.termin_iso,
+      zeit_von: parsed.zeit_von,
+      zeit_bis: parsed.zeit_bis,
+      termin_raw,
+      lektionen_soll: decs.length > 0 ? decs[0] : null,
+      lektionen_ist: decs.length > 1 ? decs[1] : null,
+      anwesenheit_pct,
+      status_raw: statusParts.join(' ').trim()
+    };
+  }
+
+  const entries = [];
+  let buf = [];
+  let started = false;
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    if (stopMarkers.test(l)) break;
+    if (weekdayRe.test(l)) {
+      if (started) {
+        const e = commitRecord(buf);
+        if (e) entries.push(e);
+      }
+      buf = [l];
+      started = true;
+    } else if (started) {
+      buf.push(l);
+    }
+    // else: noch kein Record gestartet (Header-Zeilen) — überspringen.
+  }
+  if (started) {
+    const e = commitRecord(buf);
+    if (e) entries.push(e);
+  }
+  return entries;
+}
+
 // ---------- DWR-Intercept (Modul-Detail-IDs) ----------
 // Tocco lädt die Noten-Tabelle via DWR (Direct Web Remoting) — die Response
 // ist JS-Wire-Format (nicht JSON). Pro Modulzeile enthält sie:
@@ -643,18 +898,68 @@ function parseStundenplan(text) {
 // und parsen daraus das Mapping kuerzel_id → detail_id.
 function startDwrCapture(page, urlMatcher) {
   const responses = [];
-  const handler = async (resp) => {
-    try {
-      if (!urlMatcher.test(resp.url())) return;
-      const text = await resp.text();
-      if (text) responses.push(text);
-    } catch (_) { /* ignore */ }
+  // Pending body-Reads tracken: resp.text() ist async. Eine grosse Antwort
+  // (z.B. die Page-Size-100-Suche mit ALLEN Modulen) ist beim synchronen
+  // Abgriff evtl. noch nicht fertig gelesen → getResponses() muss die Reads
+  // abwarten, sonst wird nur die kleine, schnelle Seite-1-Antwort (25 Module)
+  // erfasst und die Module ab Position 26 bekommen nie eine detail_id.
+  const pending = [];
+  const handler = (resp) => {
+    if (!urlMatcher.test(resp.url())) return;
+    const p = resp.text()
+      .then((text) => { if (text) responses.push(text); })
+      .catch(() => { /* ignore */ });
+    pending.push(p);
   };
   page.on('response', handler);
   return {
     stop() { try { page.off('response', handler); } catch (_) {} },
-    getResponses() { return responses.slice(); }
+    async getResponses() {
+      await Promise.allSettled(pending);
+      return responses.slice();
+    }
   };
+}
+
+// Greift den POST-Body + die Header der ERSTEN passenden DWR-Request ab. Damit
+// können wir die Such-Request der Seite faithfully REPLAYEN (aktiver fetch) —
+// mit hochgesetztem Paging-Limit. Das ist deterministisch und ersetzt das
+// fragile passive Mitschneiden der „richtigen" Response: Live-Spike 2026-05-29
+// hat bewiesen, dass EINE Suche mit limit:1000 ALLE Zeilen liefert (35/35
+// Registration-PKs) — Tocco paginiert NICHT. Der passive Abgriff erwischte
+// dagegen nur die schnelle limit-25-Initialantwort → 25 IDs, die 10 Module ab
+// Position 26 bekamen nie eine detail_id.
+function startDwrRequestCapture(page, urlMatcher) {
+  let first = null;
+  const handler = (req) => {
+    if (first) return;
+    if (req.method() !== 'POST') return;
+    if (!urlMatcher.test(req.url())) return;
+    let postData = null;
+    try { postData = req.postData(); } catch (_) { postData = null; }
+    if (!postData) return;
+    first = { url: req.url(), postData, headers: req.headers() };
+  };
+  page.on('request', handler);
+  return {
+    stop() { try { page.off('request', handler); } catch (_) {} },
+    getFirst() { return first; }
+  };
+}
+
+// Ersetzt das Paging-Limit (und setzt Offset auf 0) in einem abgegriffenen
+// DWR-Such-Body, damit EINE Request alle Zeilen zurückgibt. Die offset/limit-
+// Referenz-IDs werden aus dem Paging-Objekt abgeleitet → robust gegen
+// c0-eNN-Index-Verschiebungen über Sessions/Formulare hinweg.
+function bumpDwrPagingLimit(postData, limit) {
+  if (!postData) return postData;
+  const m = /Paging:\{offset:reference:(c0-e\d+),\s*limit:reference:(c0-e\d+)\}/.exec(postData);
+  if (!m) return postData;
+  const offsetRef = m[1];
+  const limitRef = m[2];
+  return postData
+    .replace(new RegExp('(^|\\n)' + limitRef + '=number:\\d+'), '$1' + limitRef + '=number:' + limit)
+    .replace(new RegExp('(^|\\n)' + offsetRef + '=number:\\d+'), '$1' + offsetRef + '=number:0');
 }
 
 // Parst eine DWR-Response (oder mehrere konkateniert) und liefert
@@ -694,6 +999,55 @@ function parseDwrIdMap(text) {
       // (z.B. wegen Pagination), nimm das erste.
       if (!map[best.kuerzelId]) map[best.kuerzelId] = id.detailId;
     }
+  }
+  return map;
+}
+
+// Absenzen-Variante von parseDwrIdMap: Mapping-Key ist der Text-Kurzbezeichnung-
+// Code (Absenzen zeigt keine numerische Übersichts-ID — der Code ist der
+// Join-Key Übersicht↔Detail). Defensiv (Spec §7): wir wissen Phase-0 noch nicht
+// sicher, welcher DWR-String die label trägt (Text-Code vs. numerische ID),
+// daher koppeln wir das nächstgelegene Kurzbezeichnung-Token an die nächste
+// PrimaryKey. Bei 0 Mappings → Log-Warn + {} (Detail-Scrape ruht, Übersicht
+// funktioniert weiter). `dwrTexts` ist ein Array von DWR-Response-Strings.
+function parseAbsenzenIdMap(dwrTexts, onLog) {
+  const log = typeof onLog === 'function' ? onLog : () => {};
+  const map = {};
+  const texts = Array.isArray(dwrTexts) ? dwrTexts : (dwrTexts ? [dwrTexts] : []);
+
+  for (const text of texts) {
+    if (!text) continue;
+
+    // 1. Alle Kurzbezeichnung-Tokens mit ihrer Stringposition.
+    const codes = [];
+    const codeRe = new RegExp(ABSENZEN_DWR_CODE_RE.source, 'g');
+    let m;
+    while ((m = codeRe.exec(text)) !== null) {
+      codes.push({ pos: m.index, code: m[0] });
+    }
+
+    // 2. Registration-PKs = die ECHTEN Detail-IDs. Live-Spike 2026-05-29: pro
+    //    Zeile gibt es eine GETEILTE Event_type-PK (pro Kurs-Typ, NICHT
+    //    eindeutig — daher kollabierten früher alle "Modul" auf 139, alle "UEK"
+    //    auf 143) UND genau eine Registration-PK (eindeutig pro Modul). Wire-Form:
+    //      entityName:"Registration",entityType:"STANDARD",key:new nice2.entity.PrimaryKey('297250')
+    //    Nur diese Registration-PK ist die korrekte detail_id (URL #detail&key=<PK>).
+    const regRe = /entityName:"Registration",entityType:"[^"]*",key:new\s+nice2\.entity\.PrimaryKey\('(\d+)'\)/g;
+    while ((m = regRe.exec(text)) !== null) {
+      const pkPos = m.index;
+      const detailId = m[1];
+      // Nächstgelegene Kurzbezeichnung VOR dieser Registration-Entität — sie
+      // steht in derselben Zeile vor dem Registration-Block (Spike-bestätigt).
+      let best = null;
+      for (const c of codes) {
+        if (c.pos < pkPos && (!best || c.pos > best.pos)) best = c;
+      }
+      if (best && best.code && !map[best.code]) map[best.code] = detailId;
+    }
+  }
+
+  if (Object.keys(map).length === 0) {
+    log('  ⚠️  Keine Absenzen-Detail-IDs aus DWR extrahiert — Detail-Scrape ruht (Übersicht funktioniert weiter)', 'warn');
   }
   return map;
 }
@@ -814,6 +1168,32 @@ function parsePruefungen(text) {
   }
   commitEntry(buf, entries);
   return entries;
+}
+
+// ---------- Detail-Page-Scrape (Lektionen pro Absenz-Modul) ----------
+// Spiegelt scrapeModulDetail, aber für die Absenzen-Detail-Route. detailId wird
+// gegen ^\d+$ validiert (Anti-URL-Fragment-Injection). URL aus den Phase-0-
+// Konfig-Konstanten zusammengesetzt; bei Format-Drift schließt ein einziger
+// Live-Lauf die TODOs, ohne den Parser anzufassen.
+async function scrapeAbsenzModulDetail(page, baseUrl, detailId, onLog) {
+  if (!/^\d+$/.test(String(detailId))) {
+    throw new Error('Ungültige Absenz-detailId: ' + String(detailId).slice(0, 32));
+  }
+  const url = baseUrl
+    + ABSENZEN_DETAIL_PATH
+    + '?nocache=' + Date.now()
+    + ABSENZEN_DETAIL_HASH(detailId);
+
+  onLog('  📖 Absenz-Detail ' + detailId + ' lädt...', 'info');
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await waitForToccoLoad(page, 'Absenz-Detail ' + detailId, onLog);
+
+  const text = await safeEvaluate(page, () => {
+    const main = document.querySelector('main, #main, .main-content, .content, article, body');
+    return main ? (main.innerText || '').trim() : '';
+  });
+
+  return parseAbsenzLektionen(text);
 }
 
 /* ---------- Detail-Page-Pool ----------
@@ -972,6 +1352,7 @@ async function runScrape(config, onLog, onPhase) {
 
   if (!cfg.notenUrl) throw new Error('config.notenUrl fehlt');
   if (!cfg.stundenplanUrl) throw new Error('config.stundenplanUrl fehlt');
+  if (!cfg.absenzenUrl) throw new Error('config.absenzenUrl fehlt');
   if (!cfg.storageFile) throw new Error('config.storageFile fehlt');
   if (!cfg.cwd) throw new Error('config.cwd fehlt');
 
@@ -981,15 +1362,22 @@ async function runScrape(config, onLog, onPhase) {
   // Noten-Page, also voll-eingeloggt ohne zweiten SSO-Flow. Wird nach dem
   // Stundenplan-Scrape geschlossen; Detail-Scrapes nutzen nur die Noten-Page.
   let planPage = null;
+  // Dritte Page für die Absenzen-Übersicht — best-effort. Gleicher Context,
+  // also voll-eingeloggt. Wird nach dem Parse geschlossen (success-path UND
+  // im catch). Ein Fehler hier darf Noten/Stundenplan NIE abbrechen.
+  let absenzenPage = null;
   // Detail-Page-Pool wird erst nach dem Parallel-Fetch aufgebaut — vorher
   // null, damit der catch-Block per null-Check sauber drainen kann.
   let detailPool = null;
 
-  let detailIdMap = {};
+  const detailIdMap = {};
   let dwrCapture = null;
+  let absDwrCapture = null;
+  let absDwrReqCapture = null;
 
   try {
     planPage = await context.newPage();
+    absenzenPage = await context.newPage();
 
     // Phase bleibt 'noten' während der gesamten Parallel-Fetch-Periode.
     // Der separate 'stundenplan'-Phase-Indikator entfällt, weil beide
@@ -1004,25 +1392,96 @@ async function runScrape(config, onLog, onPhase) {
     // gleichzeitig fetchen.
     dwrCapture = startDwrCapture(notenPage, /SearchService\.search/i);
 
-    // Beide Page-Loads parallel. Beide rufen setPageSize(100) als afterLoad
+    // ZWEITE DWR-Capture — per-Page auf der Absenzen-Page, keine Kreuz-
+    // kontamination mit dem Noten-Mapping (beide Listener hängen an
+    // verschiedenen Pages). Vor dem Promise.all registrieren, damit auch der
+    // erste SearchService.search-Call der Absenzen-Tabelle erfasst wird.
+    absDwrCapture = startDwrCapture(absenzenPage, /SearchService\.search/i);
+
+    // ZUSÄTZLICH den REQUEST der Absenzen-Suche abgreifen (Body + Header), um
+    // ihn danach mit hohem Paging-Limit aktiv zu replayen (deterministisch alle
+    // Module). Muss vor dem Promise.all registriert sein, damit die erste
+    // SearchService.search-Request der Tabelle erfasst wird.
+    absDwrReqCapture = startDwrRequestCapture(absenzenPage, /SearchService\.search/i);
+
+    // Alle drei Page-Loads parallel. Jede ruft setPageSize(100) als afterLoad
     // — unabhängige DOM-Mutationen pro Page, kein Race. waitForToccoLoad
     // pollt jeweils auf dem eigenen Document, also kein cross-page-Konflikt.
-    const [notenRaw, spRaw] = await Promise.all([
+    // Der Absenzen-Scrape ist BEST-EFFORT: .catch → leerer Text, damit ein
+    // Fehler hier Noten/Stundenplan nie abbricht (Spec §6).
+    const [notenRaw, spRaw, absRaw] = await Promise.all([
       scrapePage(notenPage, cfg.notenUrl, 'Noten', log, {
-        afterLoad: (p) => setPageSize(p, 100, log)
+        afterLoad: (p) => setPageSize(p, 100, log, 'Noten')
       }),
       scrapePage(planPage, cfg.stundenplanUrl, 'Stundenplan', log, {
-        afterLoad: (p) => setPageSize(p, 100, log)
+        afterLoad: (p) => setPageSize(p, 100, log, 'Stundenplan')
       }),
+      scrapePage(absenzenPage, cfg.absenzenUrl, 'Absenzen', log, {
+        afterLoad: (p) => setPageSize(p, 100, log, 'Absenzen')
+      }).catch(() => ({ text: '' })),
     ]);
 
     const noten = parseNoten(notenRaw.text || '');
     const stundenplan = parseStundenplan(spRaw.text || '');
 
+    // Absenzen parsen + DWR-Capture UNBEDINGT abholen+stoppen (auch wenn der
+    // Best-Effort-Scrape rejectete — sonst Listener-Leak auf der Page). Der
+    // Listener-Stop ist von einem Scrape-Fehler entkoppelt.
+    const absenzen = parseAbsenzenOverview(absRaw.text || '');
+    let absenzDetailIdMap = {};
+
+    // PRIMÄR: aktive Voll-Suche. Wir replayen die echte Such-Request der Seite
+    // (robust gegen Spalten-/Form-Änderungen) mit gebumptem Paging-Limit und
+    // parsen genau diese EINE Antwort → deterministisch ALLE Module, kein
+    // Capture-Race, keine Abhängigkeit von der UI-Seitengröße. Best-effort:
+    // ein Fehler hier fällt auf die passiv erfassten Responses zurück.
+    try {
+      // absDwrReqCapture ist hier garantiert gesetzt (Zuweisung vor Promise.all,
+      // Fehler davor landen im äusseren catch) → kein Truthy-Guard nötig.
+      const firstReq = absDwrReqCapture.getFirst();
+      if (firstReq && absenzenPage) {
+        const bumpedBody = bumpDwrPagingLimit(firstReq.postData, 1000);
+        // Vom Browser verbotene/automatische Header herausfiltern — fetch setzt
+        // sie selbst; die fachlichen x-*-Header bleiben erhalten.
+        const safeHeaders = {};
+        for (const [k, v] of Object.entries(firstReq.headers || {})) {
+          const lk = k.toLowerCase();
+          if (lk === 'content-length' || lk === 'host' || lk === 'cookie' ||
+              lk === 'connection' || lk === 'accept-encoding') continue;
+          safeHeaders[k] = v;
+        }
+        const fullText = await absenzenPage.evaluate(async (a) => {
+          const r = await fetch(a.url, { method: 'POST', headers: a.headers, body: a.body, credentials: 'include' });
+          return await r.text();
+        }, { url: firstReq.url, headers: safeHeaders, body: bumpedBody });
+        absenzDetailIdMap = parseAbsenzenIdMap([fullText], log);
+        if (Object.keys(absenzDetailIdMap).length) {
+          log('  [Absenzen] 🔑 ' + Object.keys(absenzDetailIdMap).length + ' Detail-IDs via Voll-Suche (limit 1000)', 'info');
+        }
+      }
+    } catch (e) {
+      log('  [Absenzen] ⚠️  Voll-Suche fehlgeschlagen (' + (e && e.message ? e.message : e) + ') — Fallback auf passiv erfasste Responses', 'warn');
+    }
+    // Stop ist null-sicher im try (Property-Zugriff ist drin); kein Guard nötig.
+    try { absDwrReqCapture.stop(); } catch (_) {} absDwrReqCapture = null;
+
+    // FALLBACK: passiv mitgeschnittene Search-Responses — nur falls die
+    // Voll-Suche 0 lieferte (z.B. Body-Abgriff fehlgeschlagen). Capture in jedem
+    // Fall stoppen, sonst Listener-Leak auf der Page.
+    const absDwrTexts = await absDwrCapture.getResponses();
+    absDwrCapture.stop();
+    absDwrCapture = null;
+    if (Object.keys(absenzDetailIdMap).length === 0) {
+      absenzDetailIdMap = parseAbsenzenIdMap(absDwrTexts, log);
+      if (Object.keys(absenzDetailIdMap).length) {
+        log('  [Absenzen] 🔑 ' + Object.keys(absenzDetailIdMap).length + ' Detail-IDs (passiv erfasst, Fallback)', 'info');
+      }
+    }
+
     // DWR-Listener stoppen — alle weiteren Detail-Calls sollen nicht das
     // ID-Mapping verfälschen. Vor dem Stop noch alle gesammelten Responses
     // abholen.
-    const dwrTexts = dwrCapture.getResponses();
+    const dwrTexts = await dwrCapture.getResponses();
     dwrCapture.stop();
     dwrCapture = null;
 
@@ -1037,12 +1496,12 @@ async function runScrape(config, onLog, onPhase) {
     const idCount = Object.keys(detailIdMap).length;
     const notenCount = noten.length;
     if (idCount) {
-      log('  🔑 ' + idCount + ' Modul-Detail-IDs aus DWR extrahiert', 'info');
+      log('  [Noten] 🔑 ' + idCount + ' Modul-Detail-IDs aus DWR extrahiert', 'info');
       if (notenCount > 0 && idCount < notenCount * 0.5) {
-        log('  ⚠️  DWR-ID-Map hat nur ' + idCount + '/' + notenCount + ' Module — Tocco-Format könnte sich geändert haben', 'warn');
+        log('  [Noten] ⚠️  DWR-ID-Map hat nur ' + idCount + '/' + notenCount + ' Module — Tocco-Format könnte sich geändert haben', 'warn');
       }
     } else if (notenCount > 0) {
-      log('  ⚠️  Keine Modul-Detail-IDs gefunden — Detail-Scrape wird übersprungen', 'warn');
+      log('  [Noten] ⚠️  Keine Modul-Detail-IDs gefunden — Detail-Scrape wird übersprungen', 'warn');
     }
 
     // Stundenplan-Page wird nicht mehr gebraucht — Detail-Scrapes laufen
@@ -1051,6 +1510,12 @@ async function runScrape(config, onLog, onPhase) {
     // darf den Erfolg nicht killen.
     try { await planPage.close(); } catch (_) { /* swallow */ }
     planPage = null;
+
+    // Absenzen-Übersichts-Page wird nicht mehr gebraucht — Detail-Scrapes
+    // laufen auf Pool-Pages aus dem selben Context. Schließen (wie planPage),
+    // best-effort.
+    try { await absenzenPage.close(); } catch (_) { /* swallow */ }
+    absenzenPage = null;
 
     // Stufe 2 — Detail-Scrape-Pool. Pool-Größe via Setting:
     // detailScrapeConcurrency (Default 4, konservativ wegen Tocco-
@@ -1098,11 +1563,27 @@ async function runScrape(config, onLog, onPhase) {
       warmedPages.add(page);
     }
 
+    // SEPARATES Warm-Tracking für Absenzen-Detail-Scrapes: die notenUrl-Wärmung
+    // initialisiert evtl. nicht die Absenzen-#detail-Route (andere SPA-View).
+    // Daher pro Detail-Art separat warmen (NICHT warmedPages teilen, Spec §8) —
+    // wir laden die Absenzen-Übersichtsseite, damit der Hash-Wechsel danach als
+    // Detail-Trigger erkannt wird.
+    const absenzenWarmedPages = new WeakSet();
+    async function ensureAbsenzenWarm(page) {
+      if (absenzenWarmedPages.has(page)) return;
+      log('  🔥 Pool-Page warm-up (Absenzen-Seite laden + SPA-Init)', 'info');
+      await page.goto(cfg.absenzenUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      await waitForToccoLoad(page, 'Absenzen-Pool-Warmup', log);
+      absenzenWarmedPages.add(page);
+    }
+
     return {
       noten,
       stundenplan,
+      absenzen,
       detailIdMap,
-      rawText: { noten: notenRaw.text, stundenplan: spRaw.text },
+      absenzDetailIdMap,
+      rawText: { noten: notenRaw.text, stundenplan: spRaw.text, absenzen: absRaw.text },
       fetchedAt: new Date().toISOString(),
       scrapeDetail: async (detailId) => {
         let page = await detailPool.acquire();
@@ -1130,6 +1611,29 @@ async function runScrape(config, onLog, onPhase) {
           if (page) detailPool.release(page);
         }
       },
+      scrapeAbsenzenDetail: async (detailId) => {
+        // Teilt sich denselben detailPool wie scrapeDetail, aber mit eigenem
+        // Warm-Tracking (absenzenWarmedPages) — eine notenUrl-gewärmte Page ist
+        // für die Absenzen-#detail-Route evtl. nicht warm (Spec §8).
+        let page = await detailPool.acquire();
+        if (!page) {
+          throw new Error('detail-page-pool drained — scrape cycle ended');
+        }
+        try {
+          await ensureAbsenzenWarm(page);
+          return await scrapeAbsenzModulDetail(page, cfg.baseUrl, detailId, log);
+        } catch (e) {
+          const msg = (e && e.message) || '';
+          if (/Frame was detached|Target.*closed|Connection closed|Protocol error/i.test(msg)) {
+            log('  💀 Pool-Page poisoned, dropped: ' + msg, 'warn');
+            detailPool.discard(page);
+            page = null; // im finally NICHT releasen
+          }
+          throw e;
+        } finally {
+          if (page) detailPool.release(page);
+        }
+      },
       closeBrowser: async () => {
         // Pool zuerst drainen — die Pages sind in der gleichen Browser-
         // Hierarchie, also würde browser.close() sie zwar mitnehmen, aber
@@ -1140,8 +1644,12 @@ async function runScrape(config, onLog, onPhase) {
     };
   } catch (err) {
     if (dwrCapture) try { dwrCapture.stop(); } catch (_) {}
+    if (absDwrCapture) try { absDwrCapture.stop(); } catch (_) {}
+    if (absDwrReqCapture) try { absDwrReqCapture.stop(); } catch (_) {}
     // planPage best-effort cleanup — wenn schon null (success-path), no-op.
     if (planPage) { try { await planPage.close(); } catch (_) {} }
+    // absenzenPage analog (mirror planPage:1052,1144).
+    if (absenzenPage) { try { await absenzenPage.close(); } catch (_) {} }
     // Pool drainen, falls schon erstellt — best-effort. detailPool ist als
     // `let … = null` deklariert, also reicht ein simpler null-Check.
     if (detailPool) { try { await detailPool.drain(); } catch (_) {} }
@@ -1156,6 +1664,11 @@ module.exports = {
   // Exposed for tests / ad-hoc usage
   parseDwrIdMap,
   parsePruefungen,
+  parseAbsenzenOverview,
+  parseAbsenzLektionen,
+  parseTerminLangDatum,
+  parseAbsenzenIdMap,
+  bumpDwrPagingLimit,
   safeEvaluate,
   createDetailPagePool,
   serializeStorageState,

@@ -73,6 +73,49 @@ function parseGewichtPct(raw) {
   return Number.isFinite(v) ? v : null;
 }
 
+// Positive Zahl aus rohem Text ziehen (SOLL/Besucht/Lektionen Soll/Ist etc.).
+// Toleriert Dezimal-Komma (4,00) wie Dezimal-Punkt (4.00) sowie umschliessenden
+// Text/Whitespace. Liefert null wenn keine Zahl gefunden — der Caller entscheidet
+// dann ob das ein harter Parse-Fehler ist oder einfach "kein Wert". Anders als
+// parseGewichtPct ist dies bewusst NICHT auf Prozent-Semantik gemünzt, sondern
+// der generische Zahl-Extractor für die Absenzen-Spalten.
+function parsePosNum(raw) {
+  if (raw == null) return null;
+  if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null;
+  const m = String(raw).match(/(\d+(?:[.,]\d+)?)/);
+  if (!m) return null;
+  const v = parseFloat(m[1].replace(',', '.'));
+  return Number.isFinite(v) ? v : null;
+}
+
+// Status-Normalisierung — single source of truth (Spec §3). Mappt den rohen
+// Tocco-Status-Text auf genau eine von 5 Kategorien. Alles Unbekannte landet in
+// 'unbekannt' (gilt als nicht-pushend; wird NIE still zu "abwesend" gezwungen).
+//
+// Tolerant: trimmt, ist case-insensitive und matched per Schlüsselwort-Reihenfolge
+// (spezifisch vor generisch — "nicht teilgenommen unentschuldigt" muss vor dem
+// blossen "teilgenommen"-Match greifen).
+function normalizeAbsenzStatus(raw) {
+  const t = String(raw == null ? '' : raw).trim().toLowerCase();
+  if (!t) return 'unbekannt';
+  const nichtTeilgenommen = /nicht\s+teilgenommen/.test(t);
+  if (nichtTeilgenommen) {
+    if (/unentschuldigt/.test(t)) return 'abwesend_unentschuldigt';
+    if (/entschuldigt/.test(t)) return 'abwesend_entschuldigt';
+    return 'unbekannt';
+  }
+  if (/teilgenommen/.test(t)) return 'teilgenommen';
+  if (/offen/.test(t)) return 'offen';
+  return 'unbekannt';
+}
+
+// Echte Abwesenheit (entschuldigt ODER unentschuldigt). 'offen'/'teilgenommen'/
+// 'unbekannt' sind KEINE Abwesenheit. Treibt die Push-Diff-Logik in
+// saveLektionen (Spec §3/§9).
+function isAbwesend(cat) {
+  return cat === 'abwesend_entschuldigt' || cat === 'abwesend_unentschuldigt';
+}
+
 module.exports = {
   parseFach,
   parseKuerzel,
@@ -81,5 +124,8 @@ module.exports = {
   parseZeit,
   round1,
   classifyPruefung,
-  parseGewichtPct
+  parseGewichtPct,
+  parsePosNum,
+  normalizeAbsenzStatus,
+  isAbwesend
 };

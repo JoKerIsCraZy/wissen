@@ -143,7 +143,8 @@ const PHASE_LABELS_DE = {
   login:         'Login läuft…',
   noten:         'Noten + Stundenplan werden geladen…',
   saving:        'In DB speichern…',
-  noten_details: 'Modul-Details werden geladen…'
+  noten_details: 'Modul-Details werden geladen…',
+  absenzen_details: 'Absenzen-Details werden geladen…'
 };
 
 // Sekunden seit ISO-Zeitstempel, oder null wenn ungültig

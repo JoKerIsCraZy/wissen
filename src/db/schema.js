@@ -108,6 +108,49 @@ CREATE INDEX IF NOT EXISTS idx_sp_datum_zeit ON stundenplan(datum_iso, zeit_von)
 -- removed: no consumer query filters on dozent/klasse columns; dropped via
 -- migration below to free UPSERT-maintenance cost on existing DBs.
 
+-- Absenzen / Anwesenheits-Tracking — vierte Daten-Achse, gespiegelt am
+-- Noten→Prüfungen-Vertikal. Übersicht (pro Modul) + Tagesdetail (pro Lektion).
+-- kuerzel_code (Text) ist der Join-Key zwischen Übersicht und Detail — Absenzen
+-- zeigt keine numerische Modul-ID, daher der Code statt einer kuerzel_id.
+-- absenzen = soll - besucht (NICHT auf >=0 clampen; Tocco kann besucht>soll haben).
+-- anwesenheit_pct = berechnet besucht/soll*100 (null bei soll=0); _scraped = der
+-- vom Badge angezeigte Wert für den Rundungs-Abgleich.
+CREATE TABLE IF NOT EXISTS absenzen (
+  id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+  kuerzel_code             TEXT NOT NULL UNIQUE,
+  typ                      TEXT,
+  bezeichnung              TEXT,
+  semester                 TEXT,
+  soll                     REAL,
+  besucht                  REAL,
+  absenzen                 REAL,
+  minimal_pct              REAL,
+  anwesenheit_pct          REAL,
+  anwesenheit_pct_scraped  REAL,
+  detail_id                TEXT,
+  fetched_at               DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tagesdetail pro Lektion. status ist die NORMALISIERTE Kategorie
+-- (teilgenommen|offen|abwesend_entschuldigt|abwesend_unentschuldigt|unbekannt),
+-- status_raw zusätzlich für die Anzeige. UNIQUE über (code, datum, von) —
+-- Phase-0 ggf. um zeit_bis ergänzen falls (datum, von) nicht eindeutig.
+CREATE TABLE IF NOT EXISTS absenzen_termine (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  kuerzel_code     TEXT NOT NULL,
+  termin_iso       TEXT,
+  zeit_von         TEXT,
+  zeit_bis         TEXT,
+  termin_raw       TEXT,
+  lektionen_soll   REAL,
+  lektionen_ist    REAL,
+  anwesenheit_pct  REAL,
+  status           TEXT,
+  status_raw       TEXT,
+  fetched_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(kuerzel_code, termin_iso, zeit_von)
+);
+
 -- Web-Push Subscriptions (PWA aufs Handy installiert).
 -- endpoint ist der Push-Service-URL (FCM/Mozilla/Apple), pro Browser/Gerät unique.
 -- p256dh + auth sind die Krypto-Keys aus PushSubscription.getKey().
@@ -174,6 +217,16 @@ function open(filename) {
   ensureColumn(d, 'noten', 'change_seen_at', 'change_seen_at TEXT');
   ensureColumn(d, 'stundenplan', 'change_pending', 'change_pending INTEGER NOT NULL DEFAULT 0');
   ensureColumn(d, 'stundenplan', 'change_seen_at', 'change_seen_at TEXT');
+  // Absenzen: Frisch-Marker analog noten/stundenplan. saveLektionen setzt
+  // change_pending=1 auf die absenzen-Zeile bei neuer/geänderter Abwesenheit.
+  // detail_scraped_at: Cooldown für den Detail-Scrape (12h), spiegelt noten.
+  // Auf absenzen_termine sind die Marker optional (für Fresh-Pill pro Lektion),
+  // werden hier aber idempotent mitgelegt, damit getLektionen darauf bauen kann.
+  ensureColumn(d, 'absenzen', 'detail_scraped_at', 'detail_scraped_at DATETIME');
+  ensureColumn(d, 'absenzen', 'change_pending', 'change_pending INTEGER NOT NULL DEFAULT 0');
+  ensureColumn(d, 'absenzen', 'change_seen_at', 'change_seen_at TEXT');
+  ensureColumn(d, 'absenzen_termine', 'change_pending', 'change_pending INTEGER NOT NULL DEFAULT 0');
+  ensureColumn(d, 'absenzen_termine', 'change_seen_at', 'change_seen_at TEXT');
   // Index NACH der Migration anlegen — sonst schlägt das auf alten DBs fehl,
   // in denen detail_id noch nicht existiert.
   d.exec('CREATE INDEX IF NOT EXISTS idx_noten_detail ON noten(detail_id)');
@@ -188,6 +241,15 @@ function open(filename) {
   );
   d.exec(
     'CREATE INDEX IF NOT EXISTS idx_sp_pending ON stundenplan(change_pending) WHERE change_pending = 1'
+  );
+
+  // Absenzen-Indizes NACH der ensureColumn-Migration (detail_id/change_pending
+  // existieren erst danach auf alten DBs). idx_absenzen_termine_code beschleunigt
+  // den Join Übersicht↔Detail; der Partial-Index spiegelt idx_noten_pending.
+  d.exec('CREATE INDEX IF NOT EXISTS idx_absenzen_detail ON absenzen(detail_id)');
+  d.exec('CREATE INDEX IF NOT EXISTS idx_absenzen_termine_code ON absenzen_termine(kuerzel_code)');
+  d.exec(
+    'CREATE INDEX IF NOT EXISTS idx_absenzen_pending ON absenzen(change_pending) WHERE change_pending = 1'
   );
 
   // Tote Indizes droppen — kein Konsument filtert auf dozent/klasse, der

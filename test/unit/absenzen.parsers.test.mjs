@@ -1,0 +1,78 @@
+// Tests für die Absenzen-Parser-Helfer in src/db/parsers.js:
+//   normalizeAbsenzStatus — single source of truth der Status-Normalisierung
+//   parsePosNum           — generischer Zahl-Extractor (SOLL/Besucht/Lektionen)
+//   isAbwesend            — Abwesenheits-Prädikat (treibt die Push-Diff)
+//
+// parsers.js ist CommonJS, daher via createRequire geladen.
+// Lauf: node --test test/unit/absenzen.parsers.test.mjs
+
+import { test } from 'node:test';
+import assert from 'node:assert';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const { normalizeAbsenzStatus, parsePosNum, isAbwesend } = require('../../src/db/parsers');
+
+test('normalizeAbsenzStatus mappt die 4 bestätigten Status-Werte', () => {
+  assert.strictEqual(normalizeAbsenzStatus('Teilgenommen'), 'teilgenommen');
+  assert.strictEqual(normalizeAbsenzStatus('Offen'), 'offen');
+  assert.strictEqual(
+    normalizeAbsenzStatus('Nicht teilgenommen entschuldigt'),
+    'abwesend_entschuldigt'
+  );
+  assert.strictEqual(
+    normalizeAbsenzStatus('Nicht teilgenommen unentschuldigt'),
+    'abwesend_unentschuldigt'
+  );
+});
+
+test('normalizeAbsenzStatus ist tolerant gegen Case/Whitespace', () => {
+  assert.strictEqual(normalizeAbsenzStatus('  TEILGENOMMEN  '), 'teilgenommen');
+  assert.strictEqual(
+    normalizeAbsenzStatus('nicht  teilgenommen   UNENTSCHULDIGT'),
+    'abwesend_unentschuldigt'
+  );
+});
+
+test('normalizeAbsenzStatus: unentschuldigt gewinnt vor entschuldigt-Substring', () => {
+  // "unentschuldigt" enthält "entschuldigt" als Substring — die spezifischere
+  // Regel muss zuerst greifen, sonst landet alles als entschuldigt.
+  assert.strictEqual(
+    normalizeAbsenzStatus('Nicht teilgenommen unentschuldigt'),
+    'abwesend_unentschuldigt'
+  );
+});
+
+test('normalizeAbsenzStatus: alles Unbekannte → unbekannt (nicht-pushend)', () => {
+  assert.strictEqual(normalizeAbsenzStatus('Krankgeschrieben'), 'unbekannt');
+  assert.strictEqual(normalizeAbsenzStatus('Nicht teilgenommen'), 'unbekannt');
+  assert.strictEqual(normalizeAbsenzStatus(''), 'unbekannt');
+  assert.strictEqual(normalizeAbsenzStatus(null), 'unbekannt');
+  assert.strictEqual(normalizeAbsenzStatus(undefined), 'unbekannt');
+});
+
+test('isAbwesend ist nur für die beiden abwesend_*-Kategorien wahr', () => {
+  assert.strictEqual(isAbwesend('abwesend_entschuldigt'), true);
+  assert.strictEqual(isAbwesend('abwesend_unentschuldigt'), true);
+  assert.strictEqual(isAbwesend('teilgenommen'), false);
+  assert.strictEqual(isAbwesend('offen'), false);
+  assert.strictEqual(isAbwesend('unbekannt'), false);
+  assert.strictEqual(isAbwesend(null), false);
+});
+
+test('parsePosNum extrahiert Dezimal-Punkt und -Komma', () => {
+  assert.strictEqual(parsePosNum('45'), 45);
+  assert.strictEqual(parsePosNum('4.00'), 4);
+  assert.strictEqual(parsePosNum('4,00'), 4);
+  assert.strictEqual(parsePosNum('90%'), 90);
+  assert.strictEqual(parsePosNum('  12.5 Lektionen '), 12.5);
+});
+
+test('parsePosNum: Zahlen werden durchgereicht, Müll → null', () => {
+  assert.strictEqual(parsePosNum(7), 7);
+  assert.strictEqual(parsePosNum(0), 0);
+  assert.strictEqual(parsePosNum(null), null);
+  assert.strictEqual(parsePosNum(undefined), null);
+  assert.strictEqual(parsePosNum('keine Zahl'), null);
+  assert.strictEqual(parsePosNum(NaN), null);
+});

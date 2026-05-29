@@ -8,6 +8,8 @@
 
 import { api, qs } from './client';
 import type {
+	AbsenzenLektionenResponse,
+	AbsenzenResponse,
 	ApiStatus,
 	LogsResponse,
 	NotenHistoryResponse,
@@ -120,6 +122,22 @@ export const dismissChanges = (body: DismissBody) =>
 		method: 'POST',
 		body
 	});
+
+// ---------- Absenzen ----------
+
+/** GET /api/absenzen */
+export const getAbsenzen = (init?: { signal?: AbortSignal }) =>
+	api<AbsenzenResponse>('/absenzen', init);
+
+/** GET /api/absenzen/:code/termine — Tagesliste pro Modul (kuerzel_code). */
+export const getAbsenzenLektionen = (
+	code: string,
+	init?: { signal?: AbortSignal }
+) =>
+	api<AbsenzenLektionenResponse>(
+		`/absenzen/${encodeURIComponent(code)}/termine`,
+		init
+	);
 
 // ---------- Stundenplan ----------
 

@@ -33,6 +33,7 @@ function maskSettings(s, ALLOW_UI_CREDENTIALS) {
     baseUrl: s.baseUrl,
     notenUrl: s.notenUrl,
     stundenplanUrl: s.stundenplanUrl,
+    absenzenUrl: s.absenzenUrl,
     urlsLocked: true,
     // Secret-Indikatoren
     emailSet: Boolean(s.msEmail),
@@ -59,6 +60,7 @@ function buildScraperConfig(s) {
     baseUrl: s.baseUrl,
     notenUrl: s.notenUrl,
     stundenplanUrl: s.stundenplanUrl,
+    absenzenUrl: s.absenzenUrl,
     headless: s.headless,
     slowMo: s.slowMo,
     storageFile: path.join(DATA_DIR, 'storage.json'),
@@ -104,6 +106,14 @@ function makeLogPushResult(logger) {
 // bleibt `state.running=true` für immer → Scheduler feuert nie wieder, manuelle
 // Trigger werden mit "already_running" abgelehnt → silent total failure.
 // Konfigurierbar via SCRAPE_TIMEOUT_MS, default 15 min.
+//
+// Budget-Hinweis (Absenzen-Achse): Seit der vierten Daten-Achse läuft pro
+// Cycle ein ZWEITER Detail-Pass (Absenzen) zusätzlich zum Noten-Detail-Pass.
+// Beim wöchentlichen Voll-Refresh verdoppelt sich damit grob die Detail-
+// Navigation. Beide Pässe teilen sich denselben Page-Pool, also steigt die
+// Wandzeit additiv (nicht multiplikativ). 15 min reichen für die übliche
+// Modulanzahl; bei sehr vielen Modulen den Default via SCRAPE_TIMEOUT_MS
+// erhöhen. Die >=5-Timeout-Warn wird für beide Pässe separat gespiegelt.
 const SCRAPE_TIMEOUT_MS = (() => {
   const env = parseInt(process.env.SCRAPE_TIMEOUT_MS, 10);
   return Number.isFinite(env) && env > 0 ? env : 15 * 60 * 1000;
@@ -115,7 +125,7 @@ const SCRAPE_TIMEOUT_MS = (() => {
 function create({ state, db, scraper, bot, push, settings, logger, sse, scheduler }) {
   const logPushResult = makeLogPushResult(logger);
 
-  async function runScrapeCycle(reason) {
+  async function runScrapeCycle(reason, opts = {}) {
     if (state.running) {
       logger.log(`⚠️  Scrape bereits aktiv — Trigger "${reason}" ignoriert`, 'warn');
       return { triggered: false, reason: 'already_running' };
@@ -220,13 +230,22 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
       const sStats = db.saveStundenplan(database, scraped.stundenplan || []);
       const pruned = db.pruneVergangen(database);
 
+      // Absenzen-Übersicht persistieren (vierte Daten-Achse). saveAbsenzen ist
+      // best-effort-tolerant: scraped.absenzen ist [] wenn der Best-Effort-
+      // Scrape rejectete → reines NO-OP, kein Crash für Noten/Stundenplan.
+      const aStats = db.saveAbsenzen(database, scraped.absenzen || []);
+      // detail_id-Mapping (kuerzel_code → detail_id) aus DWR persistieren.
+      if (scraped.absenzDetailIdMap && Object.keys(scraped.absenzDetailIdMap).length) {
+        db.updateAbsenzDetailIds(database, scraped.absenzDetailIdMap);
+      }
+
       // Modul-Detail-Scrape: alle Module mit gradeChange (new/changed) UND
       // alle benoteten Module ohne bisherige Pruefungen-Daten (Backfill).
       const changedKuerzelIds = (nStats.gradeChanges || [])
         .map(c => c.kuerzel_id)
         .filter(Boolean);
 
-      let detailStats = { modulesScraped: 0, totalEntries: 0, errors: 0 };
+      const detailStats = { modulesScraped: 0, totalEntries: 0, errors: 0 };
       // Modul-Liste je nach Modus:
       //   Voll-Refresh → ALLE benoteten Module mit detail_id (Cooldown ignoriert)
       //   sonst        → nur Module mit gradeChange ODER ohne bisherige Prüfungen
@@ -235,6 +254,16 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
       const isWeekly = reason === 'weekly';
       const fullDetailRefresh = isWeekly
         || (reason === 'manual' && s.manualScrapeFullDetails === true);
+
+      // Absenz-Detail-Pass + Push laufen NICHT bei jedem Autorun-Lauf, sondern
+      // nur beim LETZTEN geplanten Lauf des Tages (opts.isLastRunOfDay, vom
+      // Scheduler gesetzt). Manuelle/Telegram/weekly Läufe machen Absenzen immer
+      // voll (explizite bzw. Voll-Refresh-Aktion). Die Absenz-ÜBERSICHT
+      // (saveAbsenzen oben) läuft weiterhin jeden Lauf → Ø-Anwesenheit bleibt
+      // stündlich frisch; nur die teure Tagesliste + Push warten auf den
+      // Tages-Abschlusslauf. Autorun feuert nur an scheduleDays → „nur an
+      // eingestellten Tagen" ist dadurch automatisch erfüllt.
+      const runAbsenzDetail = reason !== 'scheduled' || opts.isLastRunOfDay === true;
       const toScrape = fullDetailRefresh
         ? db.getKuerzelnWithDetailId(database).map(r => ({ kuerzel_id: r.kuerzel_id, detail_id: r.detail_id }))
         : db.getKuerzelnNeedingDetailScrape(database, changedKuerzelIds);
@@ -339,6 +368,105 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
         }
       }
 
+      // =========================================================
+      // Absenzen-Detail-Pass — Klon des Noten-Detail-Pass oben, gegen die
+      // Absenzen-Achse. Inkrementell (geänderte Module + wöchentlicher Voll-
+      // Refresh), geteilter Detail-Page-Pool im Scraper. Best-effort: ein
+      // Detail-Fehler verliert nie die ganze Absenzen-Übersicht.
+      // =========================================================
+      const absenzDetailStats = { modulesScraped: 0, totalEntries: 0, errors: 0 };
+      // Cold-Start-Schutz Schicht 2 (§9): changedCodes enthält per Vertrag
+      // KEINE Erst-Inserts → eine Neuinstallation mit historischen Absenzen
+      // pusht 0×. Der absenzReport sammelt nur push-würdige Module.
+      const absenzReport = []; // { kuerzel_code, bezeichnung, lektionen: [...] }
+      const aChangedCodes = (aStats && Array.isArray(aStats.changedCodes)) ? aStats.changedCodes : [];
+      // Absenzen werden bei JEDEM Scrape VOLL detail-gescrapt (alle Module mit
+      // detail_id) — nur ~35 Module, und so bleibt nie eine Tagesliste leer
+      // (User-Wunsch: alle Module sauber). Der inkrementelle Pfad
+      // (getAbsenzenNeedingDetailScrape) entfällt für Absenzen bewusst.
+      // Push bleibt korrekt: newAbwesend wird unten nur für geänderte Module
+      // (isCovered via aChangedCodes) bzw. beim Voll-Refresh in den Report
+      // aufgenommen — re-scrapte UNVERÄNDERTE Lektionen erzeugen 0 Push.
+      const toScrapeAbs = db.getAbsenzenWithDetailId(database);
+
+      if (toScrapeAbs.length && runAbsenzDetail && typeof scraped.scrapeAbsenzenDetail === 'function') {
+        sse.setPhase(state, settings, 'absenzen_details');
+        const refreshLabelAbs = isWeekly
+          ? ' (wöchentlicher Voll-Refresh)'
+          : (fullDetailRefresh ? ' (manueller Voll-Refresh)' : '');
+        logger.log(`📥 Absenz-Detail-Scrape für ${toScrapeAbs.length} Modul(e)${refreshLabelAbs} — parallel via Page-Pool`, 'info');
+
+        // Phase 1: parallel feuern — der Page-Pool limited Concurrency intern.
+        // Promise.allSettled, damit ein einzelner Fehler die Detail-Daten der
+        // übrigen Module nicht verliert.
+        const absFetchResults = await Promise.allSettled(
+          toScrapeAbs.map(async (m) => {
+            const entries = await scraped.scrapeAbsenzenDetail(m.detail_id);
+            return { m, entries };
+          })
+        );
+
+        const absTimeouts = absFetchResults.filter((r) =>
+          r.status === 'rejected' && /Timeout|MAX_WAIT/i.test((r.reason && r.reason.message) || '')
+        ).length;
+        if (absTimeouts >= 5) {
+          logger.log(`  ⚠️  ${absTimeouts} Absenz-Detail-Scrape-Timeouts — Tocco evtl. langsam`, 'warn');
+        }
+
+        // Phase 2: SEQUENZIELL DB-Save + Diff-Sammlung. SQLite WAL hat nur einen
+        // Writer; parallele saveLektionen liefen gegen SQLITE_BUSY.
+        for (let i = 0; i < absFetchResults.length; i += 1) {
+          const m = toScrapeAbs[i];
+          const r = absFetchResults[i];
+          if (r.status === 'rejected') {
+            absenzDetailStats.errors++;
+            const errMsg = (r.reason && r.reason.message) ? r.reason.message : String(r.reason);
+            logger.log(`  ❌ Absenz-Detail-Scrape ${m.kuerzel_code}: ${errMsg}`, 'warn');
+          } else {
+            const { entries } = r.value;
+            // Empty-Input NO-OP wird in saveLektionen behandelt (kein Delete,
+            // kein Push) — wir rufen es trotzdem auf, damit der Vertrag (jeder
+            // Outcome → markAbsenzDetailScraped) erfüllt bleibt.
+            const ls = db.saveLektionen(database, m.kuerzel_code, entries || []);
+            if (entries && entries.length) {
+              absenzDetailStats.modulesScraped++;
+              absenzDetailStats.totalEntries += (ls.inserted + ls.updated);
+              logger.log(`  ✓ ${m.kuerzel_code} → ${entries.length} Lektion(en)`, 'info');
+            } else {
+              logger.log(`  ⏭️  ${m.kuerzel_code} → keine Lektions-Daten gefunden`, 'info');
+            }
+            // Cold-Start-Schutz Schicht 2 (§9): newAbwesend nur dann in den
+            // Push-Report, wenn das Modul in diesem Zyklus NICHT erst-eingefügt
+            // wurde. changedCodes enthält per Vertrag keine Erst-Inserts.
+            // Beim Voll-Refresh (weekly/manuell) dürfen auch nicht-changed
+            // Module pushen — analog zur Noten-weeklyReport-not-already-covered-
+            // Logik —, aber weiterhin nur für Module mit prev-Zeile, was durch
+            // changedCodes ODER eine bereits existierende Übersicht (Backfill)
+            // abgedeckt ist. Erst-Inserts bleiben über changedCodes-Filter raus.
+            if (ls.newAbwesend && ls.newAbwesend.length) {
+              // isCovered: Modul-Übersicht hat sich in diesem Zyklus geändert
+              // (besucht/anwesenheit_pct-Delta) — equivalent zum gradeChanges-
+              // Pfad bei Noten. fullDetailRefresh deckt zusätzlich den weekly/
+              // manuellen Voll-Refresh ab (not-already-covered-Logik wie Noten-
+              // weeklyReport). Erst-Inserts sind nie in aChangedCodes → eine
+              // Neuinstallation mit historischen Absenzen pusht 0× (§9).
+              const isCovered = aChangedCodes.includes(m.kuerzel_code);
+              if (isCovered || fullDetailRefresh) {
+                absenzReport.push({
+                  kuerzel_code: m.kuerzel_code,
+                  bezeichnung:  m.bezeichnung != null ? m.bezeichnung : null,
+                  lektionen:    ls.newAbwesend
+                });
+              }
+            }
+          }
+          // Cooldown-/Scraped-Marker setzen bei JEDEM Outcome (§4.2-Vertrag).
+          try { db.markAbsenzDetailScraped(database, m.kuerzel_code); } catch (_) { /* ignore */ }
+        }
+      } else if (toScrapeAbs.length && !runAbsenzDetail) {
+        logger.log('  ⏭️  [Absenzen] Detail-Pass + Push übersprungen — nicht der letzte Autorun-Lauf des Tages (Übersicht wurde aktualisiert)', 'info');
+      }
+
       if (isWeekly) {
         state.lastWeeklyDetailAt = new Date().toISOString();
         scheduler.persistWeeklyDetailState();
@@ -353,17 +481,21 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
         detail: detailStats,
         weeklyReport: fullDetailRefresh ? weeklyReport : null,
         pruefungenChanges,
+        // Vierte Achse: aStats (inserted/updated/changedCodes) + absenzReport
+        // (push-würdige Module mit newAbwesend-Lektionen) + Detail-Counts.
+        absenzen: { ...aStats, absenzReport, detail: absenzDetailStats },
         fetchedAt: scraped.fetchedAt,
         counts: {
           noten: (scraped.noten || []).length,
-          stundenplan: (scraped.stundenplan || []).length
+          stundenplan: (scraped.stundenplan || []).length,
+          absenzen: (scraped.absenzen || []).length
         }
       };
       state.lastRun = new Date().toISOString();
 
       const dur = ((Date.now() - startTs) / 1000).toFixed(1);
       logger.log(
-        `✅ Scrape fertig in ${dur}s — Noten: ${nStats.inserted} neu / ${nStats.updated} updated / ${nStats.changed} Note geändert. Stundenplan: ${sStats.inserted} neu / ${sStats.updated} updated / ${pruned} vergangen entfernt. Details: ${detailStats.modulesScraped} Modul(e) / ${detailStats.totalEntries} Prüfung(en)${detailStats.errors ? ' / ' + detailStats.errors + ' Fehler' : ''}.`,
+        `✅ Scrape fertig in ${dur}s — Noten: ${nStats.inserted} neu / ${nStats.updated} updated / ${nStats.changed} Note geändert. Stundenplan: ${sStats.inserted} neu / ${sStats.updated} updated / ${pruned} vergangen entfernt. Details: ${detailStats.modulesScraped} Modul(e) / ${detailStats.totalEntries} Prüfung(en)${detailStats.errors ? ' / ' + detailStats.errors + ' Fehler' : ''}. Absenzen: ${aStats.inserted} neu / ${aStats.updated} updated / ${absenzDetailStats.modulesScraped} Detail(s)${absenzDetailStats.errors ? ' / ' + absenzDetailStats.errors + ' Fehler' : ''}.`,
         'info'
       );
     } catch (err) {
@@ -480,6 +612,20 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
           const wr = state.lastStats && state.lastStats.weeklyReport;
           if (wr && wr.length) {
             bot.notifyWeeklyDetailReport(wr);
+          }
+
+          // Absenzen: Push bei neuer/geänderter Nicht-Teilnahme (§4.4). Der
+          // absenzReport ist bereits durch den Cold-Start-Schutz (§9) gefiltert
+          // — Erst-Inserts mit historischen Absenzen pushen 0×. Telegram +
+          // Web-Push best-effort, analog zu den Noten/Stundenplan-Dispatches.
+          const ar = state.lastStats && state.lastStats.absenzen && state.lastStats.absenzen.absenzReport;
+          if (ar && ar.length) {
+            bot.notifyNeueAbsenzen(ar);
+            if (push && typeof push.notifyNeueAbsenzen === 'function') {
+              push.notifyNeueAbsenzen(ar, database)
+                .then((r) => logPushResult('absenz', r))
+                .catch((e) => logger.log('🔔 Push (Absenzen) Fehler: ' + (e && e.message), 'warn'));
+            }
           }
         }
       } catch (_) { /* notify ist best-effort */ }

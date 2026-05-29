@@ -101,8 +101,8 @@ module.exports = function notenRoutes(deps) {
   router.post('/api/seen', (req, res) => {
     const kind = req.body && req.body.kind;
     const ids = req.body && req.body.ids;
-    if (kind !== 'noten' && kind !== 'stundenplan') {
-      return apiError(res, 400, 'kind muss "noten" oder "stundenplan" sein');
+    if (kind !== 'noten' && kind !== 'stundenplan' && kind !== 'absenzen') {
+      return apiError(res, 400, 'kind muss "noten", "stundenplan" oder "absenzen" sein');
     }
     if (!Array.isArray(ids) || !ids.length) {
       return apiError(res, 400, 'ids[] erforderlich');
@@ -127,22 +127,24 @@ module.exports = function notenRoutes(deps) {
   // Liste statt erst nach 24h. Vom "Alle gelesen"-Button und vom Mobile-
   // Swipe-to-Dismiss benutzt.
   //
-  // Body: { kind: 'noten'|'stundenplan', ids?: string[]|number[] }
+  // Body: { kind: 'noten'|'stundenplan'|'absenzen', ids?: string[]|number[] }
   //   Kein ids → dismissAll für das gegebene kind.
-  //   Body: { all: true } → dismissAll für noten UND stundenplan.
+  //   Body: { all: true } → dismissAll für noten, stundenplan UND absenzen.
   router.post('/api/dismiss', (req, res) => {
     const body = req.body || {};
     try {
       let totalNoten = 0;
       let totalPlan = 0;
+      let totalAbsenzen = 0;
       if (body.all === true) {
         totalNoten = db.dismissChanges(database, 'noten', null);
         totalPlan  = db.dismissChanges(database, 'stundenplan', null);
-        return res.json({ ok: true, dismissed: { noten: totalNoten, stundenplan: totalPlan } });
+        totalAbsenzen = db.dismissChanges(database, 'absenzen', null);
+        return res.json({ ok: true, dismissed: { noten: totalNoten, stundenplan: totalPlan, absenzen: totalAbsenzen } });
       }
       const kind = body.kind;
-      if (kind !== 'noten' && kind !== 'stundenplan') {
-        return apiError(res, 400, 'kind muss "noten" oder "stundenplan" sein (oder all=true)');
+      if (kind !== 'noten' && kind !== 'stundenplan' && kind !== 'absenzen') {
+        return apiError(res, 400, 'kind muss "noten", "stundenplan" oder "absenzen" sein (oder all=true)');
       }
       const ids = body.ids;
       // ids weglassen heißt: alle dieses kinds dismissen.
@@ -151,8 +153,10 @@ module.exports = function notenRoutes(deps) {
         if (ids.length > 200) return apiError(res, 400, 'maximal 200 ids pro Request');
       }
       const dismissed = db.dismissChanges(database, kind, ids != null ? ids : null);
-      if (kind === 'noten') totalNoten = dismissed; else totalPlan = dismissed;
-      res.json({ ok: true, dismissed: { noten: totalNoten, stundenplan: totalPlan } });
+      if (kind === 'noten') totalNoten = dismissed;
+      else if (kind === 'stundenplan') totalPlan = dismissed;
+      else totalAbsenzen = dismissed;
+      res.json({ ok: true, dismissed: { noten: totalNoten, stundenplan: totalPlan, absenzen: totalAbsenzen } });
     } catch (e) {
       // M2: e.message NICHT an den Client durchreichen — Volltext nur ins Log.
       logger.log('DB error at POST /api/dismiss: ' + (e && e.message ? e.message : e), 'error');

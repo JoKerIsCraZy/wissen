@@ -16,6 +16,7 @@
     { id: 'now',         label: 'Aktuell',      route: '/',             shortcut: 'g j' },
     { id: 'stundenplan', label: 'Stundenplan',  route: '/stundenplan',  shortcut: 'g s' },
     { id: 'noten',       label: 'Noten',        route: '/noten',        shortcut: 'g n' },
+    { id: 'absenzen',    label: 'Absenzen',     route: '/absenzen',     shortcut: 'g b' },
     { id: 'stats',       label: 'Statistik',    route: '/stats',        shortcut: 'g a' },
     { id: 'settings',    label: 'Einstellungen', route: '/settings',    shortcut: 'g e' },
     { id: 'push',        label: 'Push',         route: '/push',         shortcut: 'g p' },
@@ -52,7 +53,7 @@
 
   <nav class="rail__nav">
     {#each navItems as item, i (item.id)}
-      {#if i === 4}
+      {#if i === 5}
         <div class="rail__divider" aria-hidden="true"></div>
       {/if}
       <button
@@ -69,6 +70,8 @@
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="4" x2="8" y2="2"/><line x1="16" y1="4" x2="16" y2="2"/></svg>
           {:else if item.id === 'noten'}
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h12a4 4 0 0 1 4 4v12H8a4 4 0 0 1-4-4V4z"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="13" x2="14" y2="13"/></svg>
+          {:else if item.id === 'absenzen'}
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="4" x2="8" y2="2"/><line x1="16" y1="4" x2="16" y2="2"/><line x1="9.5" y1="14.5" x2="14.5" y2="18.5"/><line x1="14.5" y1="14.5" x2="9.5" y2="18.5"/></svg>
           {:else if item.id === 'stats'}
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="20" x2="4" y2="10"/><line x1="10" y1="20" x2="10" y2="4"/><line x1="16" y1="20" x2="16" y2="14"/><line x1="22" y1="20" x2="22" y2="8"/></svg>
           {:else if item.id === 'settings'}

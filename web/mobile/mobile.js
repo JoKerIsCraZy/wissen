@@ -346,6 +346,20 @@ function skeletonShell(viewName) {
         '<div class="m-skel m-skel--tile"></div>' +
         '<div class="m-skel m-skel--tile"></div>' +
       '</div>';
+  } else if (viewName === 'absenzen') {
+    // Absenzen-Skeleton: Stats-Hero + Filter-Chips + Modul-Card-Silhouetten.
+    // Gleiches Layout-Profil wie Noten (Hero → Chips → Liste), reuse die
+    // existing m-skel-Tokens damit der Shimmer konsistent bleibt.
+    html =
+      '<div class="m-skel m-skel--hero"></div>' +
+      '<div class="m-skel-chips">' +
+        '<div class="m-skel m-skel--chip"></div>' +
+        '<div class="m-skel m-skel--chip"></div>' +
+        '<div class="m-skel m-skel--chip"></div>' +
+      '</div>' +
+      '<div class="m-skel m-skel--card"></div>' +
+      '<div class="m-skel m-skel--card"></div>' +
+      '<div class="m-skel m-skel--card"></div>';
   } else if (viewName === 'stats') {
     // Stats-Skeleton: 2×2-Hero-KPIs, dann zwei Karten-Silhouetten für
     // Spark + Modul-Statistik. IPA-Rechner darunter wird durch eine
@@ -377,13 +391,13 @@ function errorShell(msg) {
    IS_FRESH_SQL serverseitig automatisch aus der Highlight-Logik raus,
    ohne dass der Client weiter etwas tun muss.
    ============================================================ */
-const _seenQueue = { noten: new Set(), stundenplan: new Set() };
+const _seenQueue = { noten: new Set(), stundenplan: new Set(), absenzen: new Set() };
 let _seenFlushTimer = null;
 let _seenObserver = null;
 
 function _flushSeen() {
   _seenFlushTimer = null;
-  ['noten', 'stundenplan'].forEach((kind) => {
+  ['noten', 'stundenplan', 'absenzen'].forEach((kind) => {
     const set = _seenQueue[kind];
     if (!set.size) return;
     const ids = Array.from(set);
@@ -406,7 +420,7 @@ function observeFresh(rootEl) {
         const el = entry.target;
         const kind = el.dataset.freshKind;
         const id = el.dataset.freshId;
-        if ((kind === 'noten' || kind === 'stundenplan') && id) {
+        if ((kind === 'noten' || kind === 'stundenplan' || kind === 'absenzen') && id) {
           _seenQueue[kind].add(id);
           _scheduleFlush();
         }
@@ -426,6 +440,7 @@ const routes = {
   '/noten':       { title: 'Noten',         render: renderNoten,       tab: 'noten',       hasBack: false },
   '/stundenplan': { title: 'Stundenplan',   render: renderStundenplan, tab: 'stundenplan', hasBack: false },
   '/stats':       { title: 'Statistik',     render: renderStats,       tab: 'stats',       hasBack: false },
+  '/absenzen':    { title: 'Absenzen',      render: renderAbsenzen,    tab: 'absenzen',    hasBack: false },
   '/settings':    { title: 'Einstellungen', render: renderSettings,    tab: 'settings',    hasBack: false }
 };
 
@@ -627,13 +642,15 @@ function updateStatus(status) {
   // gerade offen haben → einmal frisch laden.
   if (wasRunning && !status.running && !status.lastError) {
     const { path } = parseHash();
-    if (path === '/noten' || path === '/stundenplan' || path === '/stats') {
+    if (path === '/noten' || path === '/stundenplan' || path === '/stats' || path === '/absenzen') {
       saveCurrentScroll();
       const reload = path === '/noten'
         ? renderNoten()
         : path === '/stundenplan'
           ? renderStundenplan()
-          : renderStats();
+          : path === '/stats'
+            ? renderStats()
+            : renderAbsenzen();
       Promise.resolve(reload).then(() => restoreScroll(path));
     }
   }

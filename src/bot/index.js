@@ -19,7 +19,8 @@ const {
   notifyGradeChanges,
   notifyRoomChanges,
   notifyWeeklyDetailReport,
-  notifyPruefungenChanges
+  notifyPruefungenChanges,
+  notifyNeueAbsenzen
 } = require('./notify');
 
 // Aktuelle Poll-Loop-Promise — wird von start() befüllt, von stop() awaited.
@@ -65,7 +66,7 @@ async function start(cfg) {
     });
   } catch (e) {
     state.running = false;
-    throw new Error('Telegram-Token ungültig: ' + (e.message || e));
+    throw new Error('Telegram-Token ungültig: ' + (e.message || e), { cause: e });
   }
 
   // pollLoop ist async — Promise erfassen, damit stop() sie awaiten kann.
@@ -104,5 +105,6 @@ module.exports = {
   notifyGradeChanges,
   notifyRoomChanges,
   notifyWeeklyDetailReport,
-  notifyPruefungenChanges
+  notifyPruefungenChanges,
+  notifyNeueAbsenzen
 };

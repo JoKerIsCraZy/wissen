@@ -65,7 +65,7 @@ function loadOrGenerateKey() {
     // In der Praxis kommt das nur bei Datei-Corruption vor.)
   } catch (err) {
     if (err.code !== 'ENOENT') {
-      throw new Error('master-key read failed: ' + err.message);
+      throw new Error('master-key read failed: ' + err.message, { cause: err });
     }
     // ENOENT → unten neu generieren
   }
@@ -96,15 +96,15 @@ function loadOrGenerateKey() {
           _key = raw;
           return _key;
         }
-        throw new Error('master-key race-read returned wrong length: ' + raw.length);
+        throw new Error('master-key race-read returned wrong length: ' + raw.length, { cause: err });
       } catch (readErr) {
-        throw new Error('master-key race-read failed: ' + readErr.message);
+        throw new Error('master-key race-read failed: ' + readErr.message, { cause: readErr });
       }
     }
     // Persistenz fehlgeschlagen — Key lebt nur in-process.
     // Beim nächsten Boot wird ein anderer Key generiert,
     // bestehende ciphertexte sind dann unlesbar. Loud failure.
-    throw new Error('master-key persist failed: ' + err.message);
+    throw new Error('master-key persist failed: ' + err.message, { cause: err });
   }
 }
 
@@ -193,7 +193,7 @@ function decryptSettings(obj) {
       try {
         out[field] = decrypt(out[field]);
       } catch (err) {
-        throw new Error(`failed to decrypt settings.${field}: ${err.message}`);
+        throw new Error(`failed to decrypt settings.${field}: ${err.message}`, { cause: err });
       }
     }
   }

@@ -8,6 +8,7 @@ const {
   isWithinInterval,
   nextWindowStart,
   computeNextRun,
+  isLastScheduledRunOfDay,
   nextWeeklyDetailRun
 } = require('../../src/scheduler');
 
@@ -222,4 +223,46 @@ test('nextWeeklyDetailRun: Tuesday → next Saturday 03:00', () => {
   const next = nextWeeklyDetailRun(tue);
   assert.equal(next.getDay(), 6);
   assert.equal(next.getHours(), 3);
+});
+
+// ---------- isLastScheduledRunOfDay (gate für Absenz-Detail-Pass) ----------
+
+test('isLastScheduledRunOfDay weekly: früher Slot ist NICHT der letzte', () => {
+  // Mi 08:00, Slots 08:00+16:00 → nächster Lauf Mi 16:00 (selber Tag).
+  const s = { scheduleMode: 'weekly', scheduleDays: [1, 2, 3, 4, 5], scheduleTimes: ['08:00', '16:00'] };
+  assert.equal(isLastScheduledRunOfDay(s, localDate(3, 8, 0)), false);
+});
+
+test('isLastScheduledRunOfDay weekly: letzter Slot des Tages → true', () => {
+  // Mi 16:00 → nächster Lauf Do 08:00 (anderer Tag).
+  const s = { scheduleMode: 'weekly', scheduleDays: [1, 2, 3, 4, 5], scheduleTimes: ['08:00', '16:00'] };
+  assert.equal(isLastScheduledRunOfDay(s, localDate(3, 16, 0)), true);
+});
+
+test('isLastScheduledRunOfDay weekly: einziger Slot des Tages → true', () => {
+  const s = { scheduleMode: 'weekly', scheduleDays: [3], scheduleTimes: ['09:00'] };
+  assert.equal(isLastScheduledRunOfDay(s, localDate(3, 9, 0)), true);
+});
+
+test('isLastScheduledRunOfDay interval: mitten im Fenster → false', () => {
+  // Mi 20:00, Intervall 60min, Fenster 08–22 → nächster Lauf 21:00 (selber Tag).
+  const s = {
+    scheduleMode: 'interval', intervalMinutes: 60,
+    intervalTimeFrom: '08:00', intervalTimeTo: '22:00', scheduleDays: [1, 2, 3, 4, 5]
+  };
+  assert.equal(isLastScheduledRunOfDay(s, localDate(3, 20, 0)), false);
+});
+
+test('isLastScheduledRunOfDay interval: letzter Lauf vor Fensterende → true', () => {
+  // Mi 21:30 → +60min = 22:30 (ausserhalb 22:00) → nächster Lauf Do 08:00.
+  const s = {
+    scheduleMode: 'interval', intervalMinutes: 60,
+    intervalTimeFrom: '08:00', intervalTimeTo: '22:00', scheduleDays: [1, 2, 3, 4, 5]
+  };
+  assert.equal(isLastScheduledRunOfDay(s, localDate(3, 21, 30)), true);
+});
+
+test('isLastScheduledRunOfDay: kein gültiger Folgelauf (leere Tage) → true', () => {
+  const s = { scheduleMode: 'weekly', scheduleDays: [], scheduleTimes: ['08:00'] };
+  assert.equal(isLastScheduledRunOfDay(s, localDate(3, 8, 0)), true);
 });

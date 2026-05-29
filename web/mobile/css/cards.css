@@ -307,3 +307,86 @@ h2.m-day-h, h3.m-section-h { line-height: 1.3; }
     background: none;
   }
 }
+
+/* ============================================================
+   Absenzen — Anwesenheits-Tönung + Status-Badges
+   Vierte Daten-Achse. Spiegelt die Grade-Tonalität (m-grade--*) auf
+   Anwesenheits-Prozente: good (über Minimum) / warn (knapp) / fail
+   (unter Minimum). Reine Token-Nutzung, kein hardcoded Hex.
+   ============================================================ */
+
+/* Tonale Anwesenheits-Werte — auf .m-card__grade, .m-stat__value und
+ * .m-stats-hero__value angewandt. Reuse der Grade-Hues: good = accent-blau,
+ * excellent-grün gibt es bei Anwesenheit nicht (100 % ist „good", nicht
+ * „exzellent"), warn = warning-orange, fail = danger-rot. */
+.m-att--good { color: var(--g-good); }
+.m-att--warn { color: var(--warning); }
+.m-att--fail { color: var(--g-fail); }
+.m-att--none { color: var(--text-dim); }
+
+/* Absenz-Statline im Sheet — 4 Spalten statt der 2 beim Noten-Statline.
+ * Erbt sonst alles von .m-modul-statline (Hairline-Spalten, padding). */
+.m-absenz-statline {
+  grid-template-columns: repeat(4, 1fr);
+}
+/* Bei 4 schmalen Spalten ist 36px zu breit — eine Stufe runter, sonst
+ * brechen „100%"-Werte um. */
+.m-absenz-statline .m-stat__value {
+  font-size: 24px;
+}
+
+/* Lektion-Zeile (flache Tagesliste im Sheet): Termin links, Status-Badge
+ * rechts. Eigenes Flex-Layout, kein pruefungCard-Reuse. */
+.m-absenz-lekt {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+.m-absenz-lekt__body {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Status-Badge — Wort + Form + Farbe (a11y: nie nur Farbe). Pille mit
+ * getöntem Hintergrund + Border, Text trägt die Bedeutung. Die vier
+ * Status-Kategorien aus der Status-Normalisierung (§3):
+ *   teilgenommen   → ruhig/neutral (kein Alarm — Anwesenheit ist der
+ *                    Normalfall, soll nicht schreien)
+ *   offen          → dezent grau (noch kein Ergebnis)
+ *   entschuldigt   → warning (Abwesenheit, aber unkritisch)
+ *   unentschuldigt → danger (kritische Abwesenheit) */
+.m-att-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.m-att-badge--teilgenommen {
+  color: var(--g-good);
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+}
+.m-att-badge--offen {
+  color: var(--text-mute);
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+.m-att-badge--entschuldigt {
+  color: var(--warning);
+  background: var(--warning-soft);
+  border-color: var(--warning-border);
+}
+.m-att-badge--unentschuldigt {
+  color: var(--danger);
+  background: var(--danger-soft-strong);
+  border-color: var(--danger-border);
+}

@@ -44,7 +44,7 @@
 
   // Routes that benefit from a "scroll to top" pill once the user has paged
   // through enough content to lose their entry point.
-  const SCROLL_TOP_ROUTES = new Set(['stundenplan', 'noten', 'stats']);
+  const SCROLL_TOP_ROUTES = new Set(['stundenplan', 'noten', 'absenzen', 'stats']);
   const showScrollTop = $derived(
     SCROLL_TOP_ROUTES.has(getRouteId(page.url.pathname))
   );
@@ -60,6 +60,7 @@
     j: '/',            // Jetzt
     s: '/stundenplan', // Stundenplan
     n: '/noten',       // Noten
+    b: '/absenzen',    // Absenzen (B wie a-B-senz; n ist von Noten belegt)
     a: '/stats',       // Auswertung
     e: '/settings',    // Einstellungen
     p: '/push',        // Push

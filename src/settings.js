@@ -38,6 +38,7 @@ const DEFAULTS = Object.freeze({
   baseUrl: 'https://wiss.tocco.ch',
   notenUrl: 'https://wiss.tocco.ch/extranet/Meine-Bildung/Noten-f%C3%BCr-Studierende',
   stundenplanUrl: 'https://wiss.tocco.ch/extranet/Meine-Bildung/Stundenplan-f%C3%BCr-Studierende',
+  absenzenUrl: 'https://wiss.tocco.ch/extranet/Meine-Bildung/Absenzen-f%C3%BCr-Studierenden',
   // Scheduler
   scheduleMode: 'interval',           // 'interval' | 'weekly'
   scheduleDays: [1, 2, 3, 4, 5],      // beide Modi: 0=So .. 6=Sa
@@ -97,6 +98,7 @@ const ENV_ONLY_KEYS = Object.freeze([
   'baseUrl',
   'notenUrl',
   'stundenplanUrl',
+  'absenzenUrl',
   'port'
 ]);
 
@@ -122,7 +124,7 @@ function loadEnv() {
   // Mergen: process.env überschreibt optionale .env-Datei, damit Docker-ENV
   // immer gewinnt, aber Lokal-Dev weiter funktioniert.
   const ENV_KEYS = [
-    'MS_EMAIL','MS_PASSWORD','USER_PK','TOCCO_BASE','NOTEN_URL','STUNDENPLAN_URL',
+    'MS_EMAIL','MS_PASSWORD','USER_PK','TOCCO_BASE','NOTEN_URL','STUNDENPLAN_URL','ABSENZEN_URL',
     'HEADLESS','SLOW_MO','INTERVAL_MINUTES','AUTO_RUN','PORT',
     'TELEGRAM_TOKEN','TELEGRAM_ALLOWED_USER_ID','TELEGRAM_ENABLED'
   ];
@@ -143,6 +145,7 @@ function envToSettings(env) {
   if (env.TOCCO_BASE) s.baseUrl = env.TOCCO_BASE;
   if (env.NOTEN_URL) s.notenUrl = env.NOTEN_URL;
   if (env.STUNDENPLAN_URL) s.stundenplanUrl = env.STUNDENPLAN_URL;
+  if (env.ABSENZEN_URL) s.absenzenUrl = env.ABSENZEN_URL;
   if (env.HEADLESS != null) s.headless = env.HEADLESS !== 'false';
   if (env.SLOW_MO != null) {
     const n = parseInt(env.SLOW_MO, 10);
@@ -184,7 +187,7 @@ function readSettingsFile() {
     // File missing or unreadable → ENOENT als empty behandeln, andere Read-
     // Errors (Permissions, EIO) propagieren, damit Operator sie sieht.
     if (e && e.code === 'ENOENT') return {};
-    throw new Error('settings.json unreadable: ' + (e && e.message ? e.message : e));
+    throw new Error('settings.json unreadable: ' + (e && e.message ? e.message : e), { cause: e });
   }
   let parsed;
   try {
@@ -194,7 +197,7 @@ function readSettingsFile() {
     // würde der nächste save() die korrupte Datei mit frischen Defaults
     // überschreiben und ggf. salvageable Daten zerstören. Lieber laut
     // failen, damit Operator inspizieren kann.
-    throw new Error('settings.json invalid JSON: ' + (e && e.message ? e.message : e));
+    throw new Error('settings.json invalid JSON: ' + (e && e.message ? e.message : e), { cause: e });
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
   // Decrypt failures (korrupter Master-Key, tampered Ciphertext) propagieren
@@ -321,7 +324,7 @@ function coerce(patch) {
       out.telegramAllowedUserId = (Number.isFinite(n) && n > 0) ? Math.floor(n) : null;
     }
   }
-  for (const k of ['msEmail', 'msPassword', 'userPk', 'baseUrl', 'notenUrl', 'stundenplanUrl', 'telegramToken']) {
+  for (const k of ['msEmail', 'msPassword', 'userPk', 'baseUrl', 'notenUrl', 'stundenplanUrl', 'absenzenUrl', 'telegramToken']) {
     if (k in out && out[k] != null) out[k] = String(out[k]);
   }
   return out;

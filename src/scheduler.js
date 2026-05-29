@@ -78,6 +78,16 @@ function computeNextRun(s, fromDate = new Date()) {
   return nextWindowStart(naiveNext, s.scheduleDays, s.intervalTimeFrom);
 }
 
+// True, wenn nach `runTime` KEIN weiterer geplanter Lauf am selben Kalendertag
+// folgt — dann ist `runTime` der letzte Autorun-Lauf des Tages. Genutzt vom
+// runScrapeCycle, um den (teuren) Absenz-Detail-Pass + Push nur 1×/Tag laufen
+// zu lassen (Übersicht läuft weiterhin jeden Lauf). Reine Funktion → testbar.
+// Vergleich über toDateString() (lokale Zeitzone, Zeit ignoriert).
+function isLastScheduledRunOfDay(s, runTime = new Date()) {
+  const after = computeNextRun(s, runTime);
+  return !after || after.toDateString() !== runTime.toDateString();
+}
+
 // Berechnet den nächsten Samstag um WEEKLY_DETAIL_HOUR Uhr (lokale Zeit).
 // Falls heute Samstag und es ist NACH der Uhrzeit → nächster Samstag.
 function nextWeeklyDetailRun(fromDate = new Date()) {
@@ -179,14 +189,20 @@ function init({ state, settings, logger, runScrapeCycle }) {
     const ms = Math.max(1000, next.getTime() - Date.now());
     state.nextRun = next.toISOString();
 
+    // Ist dieser geplante Lauf der LETZTE des Tages? Nur dann läuft der
+    // Absenz-Detail-Pass + Push mit (Übersicht läuft bei jedem Lauf). Snapshot
+    // zur Schedule-Zeit; eine Settings-Änderung re-scheduled ohnehin neu.
+    const isLastRunOfDay = isLastScheduledRunOfDay(s, next);
+
     state.timer = setTimeout(() => {
-      runScrapeCycle('scheduled').catch(() => {});
+      runScrapeCycle('scheduled', { isLastRunOfDay }).catch(() => {});
     }, ms);
 
     const friendly = s.scheduleMode === 'weekly'
       ? next.toLocaleString('de-DE', { weekday: 'short' })
       : `in ${Math.round(ms/60000)} min`;
-    logger.log(`⏰ Nächster Scrape: ${formatLocalDateTime(next)} (${friendly})`, 'info');
+    const absLabel = isLastRunOfDay ? ' · inkl. Absenz-Details (letzter Lauf des Tages)' : '';
+    logger.log(`⏰ Nächster Scrape: ${formatLocalDateTime(next)} (${friendly})${absLabel}`, 'info');
     // broadcastStatus wird von runScrapeCycle (sse) selbst getriggert; hier
     // nicht doppelt — der ursprüngliche Code hat das nach scheduleNext gemacht
     // damit /api/status sofort den nextRun zeigt.
@@ -217,6 +233,7 @@ module.exports = {
   isWithinInterval,
   nextWindowStart,
   computeNextRun,
+  isLastScheduledRunOfDay,
   nextWeeklyDetailRun,
   formatLocalDateTime,
   WEEKLY_DETAIL_DAY,

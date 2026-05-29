@@ -32,6 +32,10 @@ let _stundenplanStatsCache = null;
 let _stundenplanStatsCacheAt = 0;
 let _stundenplanStatsCacheDb = null;
 
+let _absenzenStatsCache = null;
+let _absenzenStatsCacheAt = 0;
+let _absenzenStatsCacheDb = null;
+
 function invalidateStatsCache() {
   _statsCache = null;
   _statsCacheAt = 0;
@@ -42,6 +46,9 @@ function invalidateStatsCache() {
   _stundenplanStatsCache = null;
   _stundenplanStatsCacheAt = 0;
   _stundenplanStatsCacheDb = null;
+  _absenzenStatsCache = null;
+  _absenzenStatsCacheAt = 0;
+  _absenzenStatsCacheDb = null;
 }
 
 // Per-db-Handle Prepared-Statement-Cache. getStats wird bei jedem Cache-Miss
@@ -78,7 +85,18 @@ function stmts(db) {
       ORDER BY datum_iso ASC, zeit_von ASC
       LIMIT 1
     `),
-    notenAvg: db.prepare('SELECT AVG(note) AS a FROM noten WHERE note IS NOT NULL')
+    notenAvg: db.prepare('SELECT AVG(note) AS a FROM noten WHERE note IS NOT NULL'),
+    absAgg: db.prepare(`
+      SELECT
+        (SELECT AVG(anwesenheit_pct) FROM absenzen WHERE anwesenheit_pct IS NOT NULL) AS avg_anwesenheit,
+        (SELECT COUNT(*) FROM absenzen
+           WHERE anwesenheit_pct IS NOT NULL
+             AND minimal_pct IS NOT NULL
+             AND anwesenheit_pct < minimal_pct) AS unter_minimum,
+        (SELECT COUNT(*) FROM absenzen_termine
+           WHERE status IN ('abwesend_entschuldigt', 'abwesend_unentschuldigt')) AS abwesend_gesamt,
+        (SELECT MAX(fetched_at) FROM absenzen) AS last_fetched
+    `)
   };
   return _stmts;
 }
@@ -184,6 +202,35 @@ function getStundenplanStats(db) {
   return result;
 }
 
+// ---------- Slim Stats für /api/absenzen ----------
+// Speist die Stats-Kachel der Absenzen-Route (Spec §1/§4.2):
+//   avgAnwesenheit  Ø der berechneten anwesenheit_pct über alle Module (null leer)
+//   unterMinimum    Anzahl Module deren Anwesenheit unter minimal_pct liegt
+//   abwesendGesamt  Summe aller abwesend_* Lektionen über alle Module
+// Eigener Cache-Slot, im invalidateStatsCache-Pfad eingehängt (Scrape-Commit
+// verwirft ihn). round1 wird NICHT angewandt — Prozent-Werte, kein Noten-Raster.
+function getAbsenzenStats(db) {
+  const now = Date.now();
+  if (_absenzenStatsCache && _absenzenStatsCacheDb === db && (now - _absenzenStatsCacheAt) < STATS_TTL_MS) {
+    return _absenzenStatsCache;
+  }
+
+  const s = stmts(db);
+  const aggRow = s.absAgg.get();
+  const avg = aggRow?.avg_anwesenheit;
+  const result = {
+    avgAnwesenheit: avg == null ? null : Math.round(avg * 10) / 10,
+    unterMinimum: aggRow?.unter_minimum || 0,
+    abwesendGesamt: aggRow?.abwesend_gesamt || 0,
+    lastFetchedAbsenzen: aggRow?.last_fetched || null
+  };
+
+  _absenzenStatsCache = result;
+  _absenzenStatsCacheAt = now;
+  _absenzenStatsCacheDb = db;
+  return result;
+}
+
 // ---------- Frisch-Markierung ----------
 // Setzt change_seen_at = jetzt für die übergebenen IDs, aber nur wo
 // change_pending = 1 und change_seen_at noch NULL ist. Ein bereits gesehenes
@@ -214,6 +261,14 @@ function markSeen(db, kind, ids) {
              AND id IN (${placeholders})`;
     args = batch.map((v) => Number(v)).filter((n) => Number.isFinite(n));
     if (!args.length) return 0;
+  } else if (kind === 'absenzen') {
+    // Absenzen matchen über kuerzel_code (Text-Key, analog noten.kuerzel_id) —
+    // NICHT zu Number coercen wie stundenplan.
+    sql = `UPDATE absenzen SET change_seen_at = datetime('now')
+           WHERE change_pending = 1
+             AND change_seen_at IS NULL
+             AND kuerzel_code IN (${placeholders})`;
+    args = batch.map(String);
   } else {
     return 0;
   }
@@ -232,15 +287,21 @@ function markSeen(db, kind, ids) {
 // ids:  Array von kuerzel_id (noten) oder id (stundenplan), ODER null um
 //       ALLE aktuell-fresh Einträge des kind zu dismissen.
 function dismissChanges(db, kind, ids) {
-  if (kind !== 'noten' && kind !== 'stundenplan') return 0;
+  if (kind !== 'noten' && kind !== 'stundenplan' && kind !== 'absenzen') return 0;
 
   // dismissAll-Path: ids=null|undefined → alle pending dismissen
   if (ids == null) {
-    const sql = kind === 'noten'
-      ? `UPDATE noten SET change_pending = 0, change_seen_at = datetime('now')
-         WHERE change_pending = 1`
-      : `UPDATE stundenplan SET change_pending = 0, change_seen_at = datetime('now')
-         WHERE change_pending = 1`;
+    let sql;
+    if (kind === 'noten') {
+      sql = `UPDATE noten SET change_pending = 0, change_seen_at = datetime('now')
+             WHERE change_pending = 1`;
+    } else if (kind === 'absenzen') {
+      sql = `UPDATE absenzen SET change_pending = 0, change_seen_at = datetime('now')
+             WHERE change_pending = 1`;
+    } else {
+      sql = `UPDATE stundenplan SET change_pending = 0, change_seen_at = datetime('now')
+             WHERE change_pending = 1`;
+    }
     return db.prepare(sql).run().changes || 0;
   }
 
@@ -254,6 +315,12 @@ function dismissChanges(db, kind, ids) {
     sql = `UPDATE noten SET change_pending = 0, change_seen_at = datetime('now')
            WHERE change_pending = 1
              AND kuerzel_id IN (${placeholders})`;
+    args = batch.map(String);
+  } else if (kind === 'absenzen') {
+    // Absenzen matchen über kuerzel_code (Text-Key) — nicht zu Number coercen.
+    sql = `UPDATE absenzen SET change_pending = 0, change_seen_at = datetime('now')
+           WHERE change_pending = 1
+             AND kuerzel_code IN (${placeholders})`;
     args = batch.map(String);
   } else {
     sql = `UPDATE stundenplan SET change_pending = 0, change_seen_at = datetime('now')
@@ -269,6 +336,7 @@ module.exports = {
   getStats,
   getNotenStats,
   getStundenplanStats,
+  getAbsenzenStats,
   invalidateStatsCache,
   markSeen,
   dismissChanges
