@@ -24,7 +24,7 @@
   let routeId = $derived<RouteId>(getRouteId(page.url.pathname));
   let sheetOpen = $state<boolean>(false);
 
-  const overflowRoutes: RouteId[] = ['settings', 'push', 'telegram'];
+  const overflowRoutes: RouteId[] = ['absenzen', 'settings', 'push', 'telegram'];
   let moreActive = $derived(sheetOpen || overflowRoutes.includes(routeId));
 
   function isTabActive(tab: TabItem): boolean {
@@ -142,6 +142,21 @@
     <div class="sheet__handle" aria-hidden="true"></div>
     <div class="sheet__title">Mehr</div>
     <div class="sheet__list">
+      <button
+        type="button"
+        class="sheet__item"
+        class:is-active={routeId === 'absenzen'}
+        onclick={() => navigate('/absenzen')}
+      >
+        <span class="sheet__icon">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="4" x2="8" y2="2"/><line x1="16" y1="4" x2="16" y2="2"/><line x1="9.5" y1="14.5" x2="14.5" y2="18.5"/><line x1="14.5" y1="14.5" x2="9.5" y2="18.5"/></svg>
+        </span>
+        <span class="sheet__label">Absenzen</span>
+        <span class="sheet__chev" aria-hidden="true">›</span>
+      </button>
+
+      <div class="sheet__divider" aria-hidden="true"></div>
+
       <button
         type="button"
         class="sheet__item"

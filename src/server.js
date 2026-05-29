@@ -53,7 +53,7 @@ const { apiError } = require('./shared/apiError');
 
 // web-push ist optional — wenn das Paket fehlt (z.B. nach git-clone ohne npm install)
 // laufen Endpoints / Scrape-Block ohne Push weiter und loggen einen Hinweis.
-let push = null;
+let push;
 try {
   push = require('./push');
   push.init();

@@ -4,8 +4,7 @@
 // Single connection, single source of truth, single subscriber.
 // =============================================================
 
-import type { ApiStatus, LogEntry } from '$lib/api/types';
-import type { StatusKind } from '$lib/components/Topbar.svelte';
+import type { ApiStatus, LogEntry, StatusKind } from '$lib/api/types';
 
 const MAX_LOGS = 200;
 
@@ -64,6 +63,7 @@ class LiveState {
       pruefung: 'Prüfungen',
       pruefungen: 'Prüfungen',
       noten_details: 'Modul-Details',
+      absenzen_details: 'Absenzen-Details',
       detail: 'Details',
       saving: 'Speichern',
       finalize: 'Abschluss',

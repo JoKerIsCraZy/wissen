@@ -47,6 +47,10 @@
 }
 .m-hero__metarow { white-space: nowrap; }
 .m-hero__meta strong { color: var(--text); font-size: 14px; font-weight: 600; }
+/* Kritische Meta-Zeile (z. B. „X unter Minimum" > 0) — Zahl + Label rot.
+ * Semantische Tönung, greift im Absenzen-Hero. */
+.m-hero__metarow--alert,
+.m-hero__metarow--alert strong { color: var(--g-fail); }
 
 /* Modul-Detail two-stat header — same flat philosophy as m-hero. No
  * gradient container (was nested-card inside the sheet body), no border;
@@ -470,7 +474,11 @@
   -webkit-overflow-scrolling: touch;
   flex: 1 1 auto;
   min-height: 0;
+  /* Scrollbar ausblenden (bleibt scrollbar) — gleiche Technik wie .m-chips.
+   * scrollbar-width: Firefox/Standard; ::-webkit-scrollbar: Chrome/Safari/Edge. */
+  scrollbar-width: none;
 }
+.m-sheet__body::-webkit-scrollbar { display: none; }
 .m-sheet__body .m-modul-statline {
   margin-top: 0;
 }

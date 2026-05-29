@@ -24,7 +24,8 @@ const PHASE_LABELS = {
   login:         'Anmelden…',
   noten:         'Noten + Stundenplan laden…',
   saving:        'Speichern…',
-  noten_details: 'Modul-Details…'
+  noten_details: 'Modul-Details…',
+  absenzen_details: 'Absenzen-Details…'
 };
 const PHASE_PILL_LABELS = {
   starting:      'startet…',
@@ -32,7 +33,8 @@ const PHASE_PILL_LABELS = {
   login:         'Login…',
   noten:         'Noten + Plan…',
   saving:        'Speichern…',
-  noten_details: 'Details…'
+  noten_details: 'Details…',
+  absenzen_details: 'Absenzen-Details…'
 };
 const PHASE_SHORT_LABELS = ['Browser', 'Login', 'Noten + Plan', 'Speich.', 'Details'];
 

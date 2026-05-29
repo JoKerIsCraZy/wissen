@@ -7,6 +7,7 @@ function mountAll(app, deps) {
   app.use(require('./settings')(deps));
   app.use(require('./noten')(deps));
   app.use(require('./stundenplan')(deps));
+  app.use(require('./absenzen')(deps));
   app.use(require('./stats')(deps));
   app.use(require('./scrape')(deps));
   app.use(require('./push')(deps));

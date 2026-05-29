@@ -38,7 +38,18 @@ const {
   savePruefungen,
   getPruefungen
 } = require('./pruefungen');
-const { getStats, markSeen, dismissChanges } = require('./stats');
+const {
+  saveAbsenzen,
+  updateAbsenzDetailIds,
+  getAbsenzenWithDetailId,
+  getAbsenzenNeedingDetailScrape,
+  markAbsenzDetailScraped,
+  saveLektionen,
+  getLektionen,
+  getAbsenzRow,
+  getAbsenzen
+} = require('./absenzen');
+const { getStats, getAbsenzenStats, markSeen, dismissChanges } = require('./stats');
 const {
   addPushSubscription,
   removePushSubscription,
@@ -69,6 +80,17 @@ module.exports = {
   getKuerzelnWithDetailId,
   markDetailScraped,
   getNotenRow,
+  // Absenzen (Übersicht + Tagesdetail)
+  saveAbsenzen,
+  updateAbsenzDetailIds,
+  getAbsenzenWithDetailId,
+  getAbsenzenNeedingDetailScrape,
+  markAbsenzDetailScraped,
+  saveLektionen,
+  getLektionen,
+  getAbsenzRow,
+  getAbsenzen,
+  getAbsenzenStats,
   // Push
   addPushSubscription,
   removePushSubscription,

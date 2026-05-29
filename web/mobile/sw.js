@@ -11,13 +11,13 @@
    ============================================================ */
 'use strict';
 
-const VERSION = 'wn-11';
+const VERSION = 'wn-16';
 const SHELL_CACHE = 'wn-shell-' + VERSION;
 const API_CACHE = 'wn-api-' + VERSION;
 
 // Nur diese read-only-GETs sind offline-fähig (exakte pathname-Gleichheit).
 // Eigene Noten auf dem eigenen Gerät → threat-model-konform.
-const OFFLINE_GLANCE_PATHS = ['/api/noten', '/api/stundenplan', '/api/stats'];
+const OFFLINE_GLANCE_PATHS = ['/api/noten', '/api/stundenplan', '/api/stats', '/api/absenzen'];
 
 const SHELL_URLS = [
   '/mobile/',
@@ -35,6 +35,8 @@ const SHELL_URLS = [
   '/mobile/views/stundenplan.js',
   '/mobile/views/modul.js',
   '/mobile/views/modul-sheet.js',
+  '/mobile/views/absenz-sheet.js',
+  '/mobile/views/absenzen.js',
   '/mobile/views/scrape.js',
   '/mobile/views/push.js',
   '/mobile/views/settings.js',

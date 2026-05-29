@@ -101,12 +101,7 @@ function drawStats(stats, noten) {
   const wrap = document.createElement('div');
   wrap.className = 'm-stats';
 
-  const semesterEntries = (stats && stats.avgBySemester)
-    ? Object.entries(stats.avgBySemester).sort((a, b) => a[0].localeCompare(b[0]))
-    : [];
-  const semesterKeysJoined = semesterEntries.map((e) => e[0]).join('+');
-
-  wrap.append(buildHero(stats, totalModules, withGrade, withoutGrade, avg, semesterKeysJoined));
+  wrap.append(buildHero(totalModules, withGrade, withoutGrade, avg));
   wrap.append(buildSparkCard(noten));
 
   const rows = (noten && noten.rows) || [];
@@ -117,49 +112,46 @@ function drawStats(stats, noten) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Hero — 4 KPI-Spalten (Module / Mit Note / Ohne Note / Schnitt).    */
+/* Hero — Noten-Muster (.m-hero): dominanter Schnitt + Meta-Spalte.     */
+/* Gespiegelt am Noten- + Absenzen-Tab (Hierarchie durch Skala statt    */
+/* vier gleichwertiger KPI-Boxen).                                      */
 /* ------------------------------------------------------------------ */
-function buildHero(stats, totalModules, withGrade, withoutGrade, avg, semKeysJoined) {
-  const section = document.createElement('section');
-  section.className = 'm-stats-hero';
-  section.setAttribute('aria-label', 'Schnitt-Übersicht');
+function buildHero(totalModules, withGrade, withoutGrade, avg) {
+  const hero = document.createElement('section');
+  hero.className = 'm-hero';
+  hero.setAttribute('aria-label', 'Schnitt-Übersicht');
 
-  const pct = totalModules > 0
-    ? Math.round((withGrade / totalModules) * 100)
-    : 0;
-  const changedRecent = (stats && stats.changedRecent) || 0;
-  const subOhne = changedRecent
-    ? changedRecent + ' kürzlich geändert'
-    : 'ausstehend';
+  // Dominante Kennzahl: Gesamt-Schnitt, getönt via gradeClass.
+  const left = document.createElement('div');
+  const lab = document.createElement('div');
+  lab.className = 'm-hero__label';
+  lab.textContent = 'Schnitt';
+  const val = document.createElement('div');
+  val.className = 'm-hero__value ' + (avg != null ? gradeClass(avg) : '');
+  val.textContent = avg != null ? avg.toFixed(2) : '–';
+  left.append(lab, val);
 
-  section.append(
-    heroCol('Module', String(totalModules), semKeysJoined || ''),
-    heroCol('Mit Note', String(withGrade), pct + '% benotet', 'm-grade--good'),
-    heroCol('Ohne Note', String(withoutGrade), subOhne),
-    heroCol(
-      'Schnitt',
-      avg != null ? avg.toFixed(2) : '–',
-      avg != null ? ('über ' + withGrade + ' Module') : '',
-      gradeClass(avg)
-    ),
+  // Kompakte Meta-Spalte rechts: Module · benotet · ohne Note.
+  const meta = document.createElement('div');
+  meta.className = 'm-hero__meta';
+  meta.append(
+    statHeroMetaRow(totalModules, totalModules === 1 ? 'Modul' : 'Module'),
+    statHeroMetaRow(withGrade, 'benotet'),
+    statHeroMetaRow(withoutGrade, 'ohne Note'),
   );
-  return section;
+
+  hero.append(left, meta);
+  return hero;
 }
 
-function heroCol(labelText, valueText, subText, valueExtraClass) {
-  const col = document.createElement('div');
-  col.className = 'm-stats-hero__col';
-  const lab = document.createElement('div');
-  lab.className = 'm-stats-hero__label';
-  lab.textContent = labelText;
-  const val = document.createElement('div');
-  val.className = 'm-stats-hero__value mono' + (valueExtraClass ? ' ' + valueExtraClass : '');
-  val.textContent = valueText;
-  const sub = document.createElement('div');
-  sub.className = 'm-stats-hero__sub mono';
-  sub.textContent = subText || '';
-  col.append(lab, val, sub);
-  return col;
+/* Eine Meta-Zeile im Stats-Hero: fette Zahl + Label (kein innerHTML). */
+function statHeroMetaRow(num, label) {
+  const row = document.createElement('div');
+  row.className = 'm-hero__metarow';
+  const strong = document.createElement('strong');
+  strong.textContent = String(num);
+  row.append(strong, document.createTextNode(' ' + label));
+  return row;
 }
 
 /* ------------------------------------------------------------------ */

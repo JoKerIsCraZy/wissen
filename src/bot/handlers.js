@@ -120,7 +120,7 @@ async function handleCallback(cb) {
   }
 
   // Statische Screens
-  let screenPromise = null;
+  let screenPromise;
   if (SCREENS[cb.data]) {
     screenPromise = SCREENS[cb.data]();
   } else if (cb.data && cb.data.startsWith('modul_')) {

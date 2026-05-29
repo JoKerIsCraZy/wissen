@@ -340,10 +340,77 @@ async function notifyPruefungenChanges(report) {
   }
 }
 
+/**
+ * Push-Nachricht bei neuer/geänderter Absenz (Nicht-Teilnahme). Pusht NIE bei
+ * Teilgenommen/Offen — der Aufrufer (runScrapeCycle) übergibt nur newAbwesend-
+ * Einträge (siehe saveLektionen-Vertrag §9). Text ist nach Kategorie
+ * differenziert:
+ *   abwesend_unentschuldigt → "⚠️ … UNENTSCHULDIGT abwesend"
+ *   abwesend_entschuldigt   → "ℹ️ … abwesend (entschuldigt)"
+ *   Status-Wechsel          → "… Status geändert: <neu>"
+ *
+ * report: Array von { kuerzel_code, bezeichnung, lektionen: newAbwesend[] }
+ *   newAbwesend = { termin_iso, termin_raw, zeit_von, zeit_bis, status_cat,
+ *                   statusChanged? }
+ * Leeres Report-Array oder 0 Lektionen → kein Push.
+ */
+async function notifyNeueAbsenzen(report) {
+  if (!state.running || !state.allowedUserId || !state.token) return;
+  if (!Array.isArray(report) || !report.length) return;
+
+  const totalLektionen = report.reduce((s, r) => s + (r.lektionen ? r.lektionen.length : 0), 0);
+  if (!totalLektionen) return;
+
+  let text = '🚫 <b>Neue Absenz'
+    + (totalLektionen === 1 ? '' : 'en')
+    + '</b>  <i>(' + totalLektionen + ')</i>\n\n';
+
+  for (const m of report) {
+    if (!m.lektionen || !m.lektionen.length) continue;
+    const mod = extractModulNummer(m);
+    const modPrefix = mod ? '<code>' + escapeHtml(mod) + '</code> ' : '';
+    text += '📚 ' + modPrefix + '<b>' + escapeHtml(m.bezeichnung || m.kuerzel_code || 'Modul') + '</b>\n';
+
+    // Sortierung: chronologisch nach Termin (termin_iso + zeit_von).
+    const sorted = [...m.lektionen].sort((a, b) =>
+      ((a.termin_iso || '') + (a.zeit_von || '')).localeCompare((b.termin_iso || '') + (b.zeit_von || '')));
+
+    for (const l of sorted) {
+      const termin = escapeHtml(l.termin_raw || l.termin_iso || '');
+      if (l.statusChanged) {
+        const label = l.status_cat === 'abwesend_unentschuldigt'
+          ? 'unentschuldigt'
+          : (l.status_cat === 'abwesend_entschuldigt' ? 'entschuldigt' : escapeHtml(String(l.status_cat || '')));
+        text += '   🔄 ' + termin + ' — Status geändert: <b>' + label + '</b>\n';
+      } else if (l.status_cat === 'abwesend_unentschuldigt') {
+        text += '   ⚠️ ' + termin + ' — <b>UNENTSCHULDIGT</b> abwesend\n';
+      } else {
+        text += '   ℹ️ ' + termin + ' — abwesend (entschuldigt)\n';
+      }
+    }
+    text += '\n';
+  }
+
+  const keyboard = {
+    inline_keyboard: [
+      [
+        { text: '📟 Menü', callback_data: 'menu' }
+      ]
+    ]
+  };
+
+  try {
+    await sendPush(state.allowedUserId, text.trim(), keyboard);
+  } catch (e) {
+    state.logger?.log('Telegram notifyNeueAbsenzen failed: ' + e.message, 'warn');
+  }
+}
+
 module.exports = {
   notify,
   notifyGradeChanges,
   notifyRoomChanges,
   notifyWeeklyDetailReport,
-  notifyPruefungenChanges
+  notifyPruefungenChanges,
+  notifyNeueAbsenzen
 };

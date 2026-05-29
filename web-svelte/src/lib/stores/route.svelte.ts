@@ -14,6 +14,7 @@ export type RouteId =
   | 'now'
   | 'stundenplan'
   | 'noten'
+  | 'absenzen'
   | 'stats'
   | 'settings'
   | 'push'
@@ -32,6 +33,7 @@ export function getRouteId(pathname: string): RouteId {
   switch (seg) {
     case 'stundenplan':
     case 'noten':
+    case 'absenzen':
     case 'stats':
     case 'settings':
     case 'push':

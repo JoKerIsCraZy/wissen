@@ -34,6 +34,14 @@ export type ScrapePhase =
 	| (string & {});
 
 /**
+ * Topbar/Live status badge state. In einem geteilten .ts-Modul statt im
+ * Topbar.svelte <script module>, weil Sveltes ambient *.svelte-Typing nur den
+ * Default-(Komponenten)-Export exponiert — ein `import type { StatusKind }`
+ * aus der .svelte schlägt sonst mit TS2614 fehl (z.B. in live.svelte.ts).
+ */
+export type StatusKind = 'idle' | 'running' | 'error';
+
+/**
  * Shape of `state.lastStats` set by runScrape. The scraper merges results
  * from multiple stages so several keys may be absent depending on what ran.
  */
@@ -201,7 +209,7 @@ export interface PruefungenResponse {
 }
 
 /** POST /api/seen */
-export type SeenKind = 'noten' | 'stundenplan';
+export type SeenKind = 'noten' | 'stundenplan' | 'absenzen';
 
 export interface SeenRequest {
 	kind: SeenKind;
@@ -245,6 +253,91 @@ export interface StundenplanResponse {
 /** POST /api/stundenplan/clear */
 export interface StundenplanClearResponse {
 	deleted: number;
+}
+
+// ---------- Absenzen ----------
+
+/**
+ * Eine Modul-Zeile der Absenzen-Übersicht (GET /api/absenzen → rows[]).
+ * `kuerzel_code` (Text) ist der Join-Key zur Tagesliste; Absenzen zeigen
+ * keine numerische ID, daher wird der Kurzbezeichnungs-Code als Schlüssel
+ * verwendet (auch für /seen + /dismiss).
+ */
+export interface AbsenzModulRow {
+	id: number;
+	kuerzel_code: string;
+	typ: string | null;
+	bezeichnung: string | null;
+	semester: string | null;
+	soll: number | null;
+	besucht: number | null;
+	/** soll - besucht (nicht <0 geclampt). */
+	absenzen: number | null;
+	/** Minimal-Anwesenheit in % (nullable). */
+	minimal_pct: number | null;
+	/** Berechnet besucht/soll*100, null bei soll=0. */
+	anwesenheit_pct: number | null;
+	/** Vom Badge gescrapter Wert (Rundungs-Abgleich). */
+	anwesenheit_pct_scraped: number | null;
+	fetched_at: string; // SQLite CURRENT_TIMESTAMP — UTC string
+	/** 1 wenn change_pending und seen <24h (oder nie gesehen). 0 sonst. */
+	isFresh: 0 | 1;
+	/** 1 wenn eine Tagesliste (detail) vorhanden ist, 0 sonst. */
+	hasDetail?: 0 | 1;
+}
+
+/**
+ * Normalisierte Status-Kategorie einer Lektion (§3 der Spec — fix).
+ * `status_raw` trägt zusätzlich den Roh-String für die Anzeige.
+ */
+export type AbsenzStatus =
+	| 'teilgenommen'
+	| 'offen'
+	| 'abwesend_entschuldigt'
+	| 'abwesend_unentschuldigt'
+	| 'unbekannt'
+	| (string & {});
+
+/** Eine Lektion der Tagesliste (GET /api/absenzen/:code/termine → rows[]). */
+export interface AbsenzLektionRow {
+	id: number;
+	kuerzel_code: string;
+	termin_iso: string | null; // YYYY-MM-DD
+	zeit_von: string | null; // HH:MM
+	zeit_bis: string | null; // HH:MM
+	termin_raw: string | null;
+	lektionen_soll: number | null;
+	lektionen_ist: number | null;
+	anwesenheit_pct: number | null;
+	/** Normalisierte Kategorie. */
+	status: AbsenzStatus;
+	/** Roh-String aus dem Scrape, für die Anzeige. */
+	status_raw: string | null;
+	fetched_at: string;
+	isFresh: 0 | 1;
+}
+
+export interface AbsenzenStats {
+	/** Ø Ist-Anwesenheit über alle Module mit Wert (%). */
+	avgAnwesenheit: number | null;
+	/** Anzahl Module unter ihrer Minimal-Anwesenheit. */
+	unterMinimum: number;
+	/** Summe der Abwesenheiten (soll - besucht) über alle Module. */
+	abwesendGesamt: number;
+}
+
+/** GET /api/absenzen */
+export interface AbsenzenResponse {
+	rows: AbsenzModulRow[];
+	count: number;
+	stats: AbsenzenStats;
+	fetchedAt: string | null;
+}
+
+/** GET /api/absenzen/:code/termine */
+export interface AbsenzenLektionenResponse {
+	modul: AbsenzModulRow;
+	rows: AbsenzLektionRow[];
 }
 
 // ---------- Stats ----------

@@ -96,6 +96,7 @@ async function main() {
     userPk,
     notenUrl: env.NOTEN_URL || 'https://wiss.tocco.ch/extranet/Meine-Bildung/Noten-f%C3%BCr-Studierende',
     stundenplanUrl: env.STUNDENPLAN_URL || 'https://wiss.tocco.ch/extranet/Meine-Bildung/Stundenplan-f%C3%BCr-Studierende',
+    absenzenUrl: env.ABSENZEN_URL || 'https://wiss.tocco.ch/extranet/Meine-Bildung/Absenzen-f%C3%BCr-Studierenden',
     baseUrl,
     headless,
     slowMo,

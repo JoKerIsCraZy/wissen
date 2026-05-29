@@ -52,6 +52,20 @@ export default [
     }
   },
   {
+    // .mjs-Testdateien sind native ES-Module (import/export). Der Default-Block
+    // oben deklariert sourceType:'commonjs', was den Parser bei import/export
+    // abbrechen laesst — hier auf ES-Module umstellen + node:test-Globals.
+    files: ['**/*.mjs'],
+    languageOptions: {
+      sourceType: 'module',
+      globals: {
+        describe: 'readonly', it: 'readonly',
+        before: 'readonly', after: 'readonly',
+        beforeEach: 'readonly', afterEach: 'readonly'
+      }
+    }
+  },
+  {
     // src/scraper.js fuehrt Code in page.evaluate()/safeEvaluate()-Callbacks
     // aus, die IM BROWSER laufen - Browser-Globals dort als readonly
     // deklarieren, sonst flaggt no-undef document/location faelschlich.

@@ -452,6 +452,61 @@ function notifyPruefungenChanges(report, database) {
   }, database);
 }
 
+// Formatiert einen einzelnen newAbwesend-Eintrag als Push-Body-Zeile.
+// statusChanged === true → "Status geändert: <kategorie>"; sonst je nach
+// Kategorie unentschuldigt/entschuldigt differenziert. Mirror der Telegram-
+// Variante (bot/notify.js), aber als reiner Text ohne HTML (Web-Push-Body).
+function absenzLektionLine(lek) {
+  const termin = lek.termin_raw || lek.termin_iso || '';
+  if (lek.statusChanged) {
+    const label = lek.status_cat === 'abwesend_unentschuldigt'
+      ? 'unentschuldigt'
+      : (lek.status_cat === 'abwesend_entschuldigt' ? 'entschuldigt' : (lek.status_cat || ''));
+    return termin + ': Status geändert → ' + label;
+  }
+  if (lek.status_cat === 'abwesend_unentschuldigt') {
+    return termin + ': UNENTSCHULDIGT abwesend';
+  }
+  return termin + ': abwesend (entschuldigt)';
+}
+
+/**
+ * Web-Push bei neuer/geänderter Absenz (Nicht-Teilnahme). Spiegelt
+ * notifyPruefungenChanges: ≤3 Module → Detail-Push pro Modul, >3 → Summary.
+ *
+ * report: Array von { kuerzel_code, bezeichnung, lektionen: newAbwesend[] }
+ *   newAbwesend = { termin_iso, termin_raw, zeit_von, zeit_bis, status_cat,
+ *                   statusChanged? }
+ * Leerer Report oder 0 Lektionen → kein Push.
+ */
+function notifyNeueAbsenzen(report, database) {
+  if (!Array.isArray(report) || !report.length) return Promise.resolve(null);
+  const totalLektionen = report.reduce((s, m) => s + (m.lektionen ? m.lektionen.length : 0), 0);
+  if (!totalLektionen) return Promise.resolve(null);
+
+  if (report.length <= 3) {
+    const tasks = report.map((m) => {
+      const subj = m.bezeichnung || m.kuerzel_code || 'Modul';
+      // Titel-Icon nach "schwerster" Kategorie im Modul: unentschuldigt > Rest.
+      const hasUnent = (m.lektionen || []).some(l => l.status_cat === 'abwesend_unentschuldigt');
+      const title = (hasUnent ? '⚠️ Absenz: ' : 'ℹ️ Absenz: ') + subj;
+      const body = capBody((m.lektionen || []).map(absenzLektionLine).join('; '));
+      return sendToAll({
+        title, body,
+        url: '/mobile/#/absenzen?code=' + encodeURIComponent(m.kuerzel_code || ''),
+        tag: 'absenz-' + (m.kuerzel_code || '')
+      }, database);
+    });
+    return Promise.allSettled(tasks);
+  }
+  return sendToAll({
+    title: '⚠️ Neue Absenzen',
+    body: capBody(totalLektionen + ' Nicht-Teilnahmen in ' + report.length + ' Modulen'),
+    url: '/mobile/#/absenzen',
+    tag: 'absenz-summary'
+  }, database);
+}
+
 function notifyRoomChanges(roomChanges, database) {
   if (!Array.isArray(roomChanges) || !roomChanges.length) return Promise.resolve(null);
 
@@ -527,6 +582,7 @@ module.exports = {
   notifyGradeChanges,
   notifyRoomChanges,
   notifyPruefungenChanges,
+  notifyNeueAbsenzen,
   // nur für Tests — direkt das interne Recording triggern, damit der Counter
   // ohne Mock von web-push.sendNotification verifiziert werden kann.
   __test_recordVapidMismatchRemoval: _recordVapidMismatchRemoval,
