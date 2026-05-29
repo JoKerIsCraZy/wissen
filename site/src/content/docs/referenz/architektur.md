@@ -35,8 +35,8 @@ wissen/
 │   ├── scraper.js      Playwright Login + Scraping
 │   ├── push.js         Web-Push (VAPID, FCM/Mozilla/Apple)
 │   ├── logger.js       Logging
-│   ├── routes/         11 Express-Route-Module
-│   ├── db/             SQLite-Layer (9 Module)
+│   ├── routes/         12 Express-Route-Module
+│   ├── db/             SQLite-Layer (10 Module)
 │   ├── bot/            Telegram-Bot (8 Module)
 │   └── shared/         envLoader, escapeHtml, apiError
 ├── test/unit/          Unit-Tests
@@ -60,6 +60,7 @@ wissen/
 | `settings.js` | `GET/PATCH /api/settings` |
 | `noten.js` | `GET /api/noten`, `/:id/pruefungen`, `/api/history/:id` |
 | `stundenplan.js` | `GET /api/stundenplan`, `POST .../clear` |
+| `absenzen.js` | `GET /api/absenzen`, `/:code/termine` |
 | `stats.js` | `GET /api/stats` |
 | `scrape.js` | `POST /api/scrape` |
 | `push.js` | VAPID, subscribe, test |
@@ -77,6 +78,7 @@ wissen/
 | `parsers.js` | DOM → Domain-Objekt |
 | `noten.js` | Noten-CRUD + History-Append |
 | `stundenplan.js` | Termin-CRUD + Raumwechsel-Detection |
+| `absenzen.js` | Anwesenheits-Übersicht + Termin-CRUD pro Lektion |
 | `pruefungen.js` | LB/ZP/OTHER-CRUD + History |
 | `stats.js` | Aggregat-Queries |
 | `push.js` | Subscriptions |
@@ -103,6 +105,8 @@ wissen/
 | `noten_pruefungen` | LB / ZP / OTHER pro Modul mit Gewicht |
 | `pruefungen_history` | Append-only Verlauf jeder ZP/LB-Bewertungs-Änderung |
 | `stundenplan` | Termine mit Datum, Zeit, Raum, Dozent + Raumwechsel-Marker |
+| `absenzen` | Modul-Anwesenheits-Übersicht: Soll-/Besucht-Lektionen, Min %, Ist %, Typ, Semester + Frisch-Marker |
+| `absenzen_termine` | Eine Zeile pro Lektion: Datum, Zeit, Status (teilgenommen / offen / abwesend entschuldigt \| unentschuldigt) |
 | `push_subscriptions` | PWA-Push-Subscriptions (endpoint + Krypto-Keys) |
 
 DB-Connection ist seit v1.0.0 ein **Boot-Singleton** — Migrationen + `reclassifyOtherPruefungen` laufen einmal beim Start, alle Routen / Bot-Screens nutzen den geteilten Handle.

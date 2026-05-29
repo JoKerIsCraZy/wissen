@@ -37,6 +37,12 @@ Das **WISSen Dashboard** ist eine moderne Single-Page-Application gebaut mit **S
 - Note-Verteilung als Histogramm
 - Notentrend über Zeit
 
+### `/absenzen` — Absenzenübersicht
+
+- Sortierbare **Modul-Tabelle** mit Inline-Tagesliste (Lektionen + Status: teilgenommen / offen / abwesend entschuldigt / abwesend unentschuldigt)
+- **Stats-Tiles:** Ø-Anwesenheit, Module unter Minimum, Abwesenheiten gesamt
+- **Filter** nach Modul / Status
+
 ### `/push` — Push-Subscription verwalten
 
 - Aktivieren / Deaktivieren

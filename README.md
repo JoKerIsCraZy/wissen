@@ -7,8 +7,8 @@
 ### _Schon WISSen, bevor man's vergisst._
 
 **Inoffizielles Daily-Driver-Toolkit für das WISS Tocco-Schulportal.**
-Noten, Stundenplan, Modul-Details, Raumpläne und Push-Benachrichtigungen — als
-Web-Dashboard, installierbare Mobile-PWA und Telegram-Bot. Selbst gehostet,
+Noten, Stundenplan, Modul-Details, Absenzen, Raumpläne und Push-Benachrichtigungen
+— als Web-Dashboard, installierbare Mobile-PWA und Telegram-Bot. Selbst gehostet,
 ohne Cloud, ohne Account, ohne Datenkrake.
 
 🌐 **Doku & Live-Demo:** <https://jokeriscrazy.github.io/wissen/>
@@ -37,6 +37,7 @@ Tocco selbst nicht hat.
 | ZP/LB-Korrekturen verschwinden lautlos   | Append-only History jeder Bewertungs-Änderung         |
 | Raumwechsel siehst du im Stundenplan-PDF | Notification: alter → neuer Raum, mit Stockwerks-Plan |
 | Schnitt nur grob pro Modul               | LB/ZP-Gewichtung sichtbar, IPA-Rechner, Statistik-Tab |
+| Absenzen tief in einer Liste vergraben   | Anwesenheits-Tab + Push sobald eine neue Abwesenheit auftaucht |
 | Kein API, keine App                      | REST-API, PWA, Telegram-Bot, Live-Logs via SSE        |
 
 ---
@@ -45,9 +46,10 @@ Tocco selbst nicht hat.
 
 - 📊 **Noten-Dashboard** (SvelteKit-SPA) — Durchschnitte, Filter, Modul-Detail mit LB / ZP / Gewichtung, IPA-Rechner, Statistik-Ansicht
 - 📱 **Mobile-App / PWA** unter `/mobile/` — auf iOS & Android wie eine native App installierbar
-- 🔔 **Push-Benachrichtigungen** bei neuen Noten, Bewertungs-Korrekturen und Zimmerwechseln — **auch bei geschlossener App** (Mozilla / FCM / Apple Web Push)
+- 🔔 **Push-Benachrichtigungen** bei neuen Noten, Bewertungs-Korrekturen, Zimmerwechseln und neuen Absenzen — **auch bei geschlossener App** (Mozilla / FCM / Apple Web Push)
 - 🗺 **Inline-Raumpläne** (4. OG / 2. OG) mit Live-Highlighting des aktuellen Raums
 - 📅 **Stundenplan-Tab** mit kommenden Terminen und Frisch-Markern für Änderungen
+- ✅ **Absenzen-Tab** — Anwesenheit pro Modul (Soll/Ist-Lektionen, Ø-Anwesenheit, Module unter Minimum), Tagesliste pro Lektion mit Status (teilgenommen / offen / abwesend entschuldigt · unentschuldigt) und Push bei neuer Abwesenheit
 - ⏱ **Auto-Scrape** im Intervall- oder Wochenplan-Modus, mit manuellem Trigger
 - 💬 **Telegram-Bot** mit Live-Tracking, Inline-Buttons und interaktivem Menü
 - 🔒 **Bearer-Token-Auth** + Anti-Brute-Force in drei Schichten — sicher hinter Reverse-Proxy
@@ -156,9 +158,10 @@ Test-Button drücken.
 
 | Ereignis         | Push-Inhalt                                             |
 | ---------------- | ------------------------------------------------------- |
-| 🆕 Neue Note     | Modulname + Note + Direktlink zum Modul-Detail          |
-| ✏️ Notenänderung | Vorher → Nachher + Modulname                            |
-| 🚪 Zimmerwechsel | Datum, Zeit, alter → neuer Raum (auch Online ↔ Offline) |
+| 🆕 Neue Note      | Modulname + Note + Direktlink zum Modul-Detail          |
+| ✏️ Notenänderung  | Vorher → Nachher + Modulname                            |
+| 🚪 Zimmerwechsel  | Datum, Zeit, alter → neuer Raum (auch Online ↔ Offline) |
+| ⚠️ Neue Abwesenheit | Modul + Datum/Lektion, ⚠️ unentschuldigt / ℹ️ entschuldigt (auch Wechsel entschuldigt ↔ unentschuldigt) |
 
 Notifications kommen **auch wenn die App komplett geschlossen ist**.
 
@@ -234,6 +237,8 @@ curl -H "Authorization: Bearer $API_TOKEN" http://localhost:3000/api/noten
 | `POST`          | `/api/stundenplan/clear`    | Stundenplan-Cache leeren                   |
 | `GET`           | `/api/history/:id`          | Notenverlauf eines Moduls                  |
 | `GET`           | `/api/stats`                | Gesamt-Statistiken                         |
+| `GET`           | `/api/absenzen`             | Absenzen-Übersicht aller Module + Stats    |
+| `GET`           | `/api/absenzen/:code/termine` | Tagesliste (Lektionen + Status) eines Moduls |
 | `POST`          | `/api/scrape`               | Manuellen Scrape auslösen                  |
 | `GET`           | `/api/logs`                 | Letzte Log-Zeilen                          |
 | `GET`           | `/api/events`               | SSE-Stream für Live-Status                 |
@@ -312,8 +317,8 @@ wissen/
 │   ├── scraper.js      Playwright Login + Scraping
 │   ├── secretCrypto.js AES-256-GCM für settings.json-Secrets
 │   ├── push.js         Web-Push (VAPID, FCM / Mozilla / Apple)
-│   ├── routes/         11 Express-Route-Module
-│   ├── db/             SQLite-Layer (9 Module)
+│   ├── routes/         12 Express-Route-Module
+│   ├── db/             SQLite-Layer (10 Module)
 │   └── bot/            Telegram-Bot (8 Module)
 ├── web-svelte/         V2-Frontend (SvelteKit 2 + Svelte 5 → dist/)
 ├── web/mobile/         Legacy PWA (Vanilla-JS + Service-Worker, /mobile/)
@@ -337,6 +342,8 @@ web-push · **SvelteKit 2 + Svelte 5** (V2-Dashboard) · Vanilla-JS-PWA für `/m
 | `noten_pruefungen`   | LB / ZP / OTHER pro Modul mit Gewicht                                                 |
 | `pruefungen_history` | Append-only Verlauf jeder ZP/LB-Änderung („4.0 → 4.5"-Diffs)                          |
 | `stundenplan`        | Termine mit Datum, Zeit, Raum, Dozent + Raumwechsel-Marker                            |
+| `absenzen`           | Anwesenheits-Übersicht pro Modul (Soll/Besucht-Lektionen, Min %, Ist %, Typ, Semester) |
+| `absenzen_termine`   | Eine Zeile pro Lektion: Datum, Zeit, Status (teilgenommen / offen / abwesend entschuldigt · unentschuldigt) |
 | `push_subscriptions` | PWA-Push-Subscriptions (endpoint + Krypto-Keys)                                       |
 
 ---
