@@ -8,7 +8,7 @@
    Verbatim-Klon von views/modul-sheet.js (Shell, Focus-Trap, Drag-to-Dismiss,
    Click-Soak-doClose, History-Back, ESC, Backdrop). Selbst-enthaltend — KEIN
    Reuse von computeWeighted/pruefungCard. Der Body zeigt eine Statline
-   (Besucht/SOLL/Min%/Ist%) + eine flache Tagesliste mit Status-Badge
+   (Besucht/SOLL/Ist%/Min%, 2×2) + eine flache Tagesliste mit Status-Badge
    (.m-att-badge--*, kein gradeClass).
 
    Lifecycle (single path):
@@ -131,7 +131,7 @@
     const body = sheet.querySelector('.m-sheet__body');
     body.replaceChildren();
 
-    // Statline — 4 Kennzahlen (Besucht · SOLL · Min% · Ist%). Eigene Klasse
+    // Statline — 4 Kennzahlen, 2×2 (Besucht · SOLL / Ist% · Min%). Eigene Klasse
     // damit das 4-Spalten-Grid sich vom 2-Spalten-Noten-Statline unterscheidet.
     body.append(buildStatline(modul));
 
@@ -154,12 +154,14 @@
     stats.className = 'm-modul-statline m-absenz-statline';
 
     stats.append(
-      // Ist (Besucht) vor SOLL — konsistent „Ist/Soll" wie im Desktop-Header.
+      // 2×2-Grid (grid-template-columns: 1fr 1fr): linke Spalte = „Ist"-Paar
+      // (Besucht über Ist%), rechte Spalte = „Soll/Ziel"-Paar (SOLL über Min%).
+      // Reihenfolge füllt zeilenweise: [Besucht, SOLL] / [Ist%, Min%].
       statCol('Besucht', fmtNum(modul.besucht), ''),
       statCol('SOLL', fmtNum(modul.soll), ''),
-      statCol('Min %', modul.minimal_pct != null ? fmtPct(modul.minimal_pct) : '–', ''),
       statCol('Ist %', fmtPct(modul.anwesenheit_pct),
         attendanceClass(modul.anwesenheit_pct, modul.minimal_pct)),
+      statCol('Min %', modul.minimal_pct != null ? fmtPct(modul.minimal_pct) : '–', ''),
     );
     return stats;
   }

@@ -16,8 +16,15 @@
  * vom Scraper nicht mehr emittiert — sie ist aus PHASE_ORDER + Labels
  * entfernt. Defensive Mappings für 'stundenplan' werden NICHT als Safety
  * vorgehalten, weil das die Progress-Bar visuell verzerren würde
- * (activeIndex springt). */
-const PHASE_ORDER = ['browser', 'login', 'noten', 'saving', 'noten_details'];
+ * (activeIndex springt).
+ *
+ * 'absenzen_details' ist die LETZTE Phase (Absenz-Detail-Pass, nach
+ * noten_details). MUSS in PHASE_ORDER stehen — sonst ist activeIndex=-1 wenn
+ * der Scraper dort ist, kein Step wird aktiv und die Bar fällt auf 5% zurück.
+ * Bei Autorun-Läufen, die NICHT der letzte des Tages sind, wird diese Phase
+ * übersprungen — dann endet der Lauf nach 'Details' (Bar bei ~75 %), was ok
+ * ist (die Card geht danach auf idle). */
+const PHASE_ORDER = ['browser', 'login', 'noten', 'saving', 'noten_details', 'absenzen_details'];
 const PHASE_LABELS = {
   starting:      'Initialisiere…',
   browser:       'Browser starten…',
@@ -36,7 +43,7 @@ const PHASE_PILL_LABELS = {
   noten_details: 'Details…',
   absenzen_details: 'Absenzen-Details…'
 };
-const PHASE_SHORT_LABELS = ['Browser', 'Login', 'Noten + Plan', 'Speich.', 'Details'];
+const PHASE_SHORT_LABELS = ['Browser', 'Login', 'Noten + Plan', 'Speich.', 'Details', 'Absenzen'];
 
 /* ============================================================
    Scrape-Card (Settings) — Status, Phase-Steps, Button, Progress.
