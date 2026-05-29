@@ -334,6 +334,11 @@ h2.m-day-h, h3.m-section-h { line-height: 1.3; }
 .m-absenz-statline .m-stat__value {
   font-size: 24px;
 }
+/* Vertikalen Trenner links von „Ist %" (3. Spalte) entfernen — trennt die
+ * Lektionen-Spalten (Besucht·SOLL) optisch von den Prozent-Spalten (Ist%·Min%).
+ * Der generische `.m-stat + .m-stat`-border-left (views.css) setzt ihn sonst
+ * zwischen JEDE Spalte. */
+.m-absenz-statline .m-stat:nth-child(3) { border-left: 0; }
 
 /* Lektion-Zeile (flache Tagesliste im Sheet): Termin links, Status-Badge
  * rechts. Eigenes Flex-Layout, kein pruefungCard-Reuse. */
