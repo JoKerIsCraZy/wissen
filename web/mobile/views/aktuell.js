@@ -376,9 +376,12 @@ function drawAktuell(planData, notenData) {
     if (currentEvent.raum) metaParts.push(currentEvent.raum);
     if (currentEvent.dozent) metaParts.push(currentEvent.dozent);
     card.querySelector('.m-now-card__meta').textContent = metaParts.join(' · ');
-    /* No Floor-Plan in the Now-card — the room is already in the meta line,
-     * and the same info lives one tap away in the Nächste-Lektion dropdown
-     * + the Heute-noch list. Avoid duplicating it here. */
+    /* Floor-Plan der laufenden Lektion direkt in der Aktuell-Card: zeigt auf
+     * einen Blick WO der User gerade hin muss/ist, ohne in den Stundenplan zu
+     * wechseln. buildFloorView gibt null bei Online-/unbekannten Räumen zurück
+     * — dann bleibt die Card schlank (nur die Meta-Zeile). */
+    const fp = buildFloorView(currentEvent.raum);
+    if (fp) card.append(fp);
   } else if (nextEventToday) {
     card.innerHTML =
       '<div class="m-now-card__lbl">Nächste Lektion</div>' +
