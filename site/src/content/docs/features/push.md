@@ -12,8 +12,14 @@ WISSen sendet **echte Web-Push-Benachrichtigungen** über die Web-Push-API — M
 | 🆕 **Neue Note** | Modulname + Note + Direktlink zum Modul-Detail |
 | ✏️ **Notenänderung** | Vorher → Nachher + Modulname |
 | 🚪 **Zimmerwechsel** | Datum, Zeit, alter → neuer Raum (auch Online ↔ Offline) |
+| 📋 **Neue Abwesenheit** | Modulname + Datum/Lektion + Art (⚠️ unentschuldigt / ℹ️ entschuldigt) |
+| 🔁 **Status geändert** | Wechsel entschuldigt ↔ unentschuldigt für eine Abwesenheit |
 
 Notifications kommen **auch wenn die App komplett geschlossen ist**.
+
+:::note[Absenz-Pushes]
+Nur **abwesend entschuldigt** und **abwesend unentschuldigt** lösen einen Push aus. Die Status **„teilgenommen"** und **„offen"** pushen nie. Der Absenz-Push ist **Cold-Start-sicher**: der allererste Scrape pusht keine historischen Abwesenheiten, sondern legt nur den Ausgangsstand an.
+:::
 
 ## Voraussetzungen
 

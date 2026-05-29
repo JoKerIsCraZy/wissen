@@ -101,6 +101,7 @@ export default defineConfig({
             { label: 'Push-Benachrichtigungen', link: '/features/push/' },
             { label: 'Telegram-Bot', link: '/features/telegram/' },
             { label: 'Stundenplan & Noten', link: '/features/stundenplan-noten/' },
+            { label: 'Absenzen', link: '/features/absenzen/' },
           ],
         },
         {

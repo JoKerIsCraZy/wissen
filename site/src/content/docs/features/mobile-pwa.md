@@ -32,6 +32,7 @@ Push-Benachrichtigungen funktionieren auf iOS **nur in der installierten PWA**, 
 | **Aktuell** | Now-Card, Next-Card, Last-Changed |
 | **Stundenplan** | Tages-/Wochen-Listen, Raumwechsel-Highlights |
 | **Noten** | Übersicht, Modul-Sheet mit LB/ZP-Liste |
+| **Absenzen** | Stats-Header + Modul-Liste (A–Z, Typ-Filter); Tap aufs Modul öffnet Sheet mit Tagesliste pro Lektion + Status-Badge |
 | **Push** | Aktivieren, Test-Push, Subscriptions verwalten |
 | **Settings** | Scraper, Telegram, Credentials |
 | **Scrape** | Manueller Scrape mit Live-Phase-Anzeige |

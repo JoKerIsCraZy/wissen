@@ -51,6 +51,13 @@ curl -H "Authorization: Bearer $API_TOKEN" \
 | `GET` | `/api/stundenplan` | Termine (`?from=YYYY-MM-DD&limit=100`) |
 | `POST` | `/api/stundenplan/clear` | Alle Stundenplan-Einträge löschen |
 
+### Absenzen
+
+| Methode | Pfad | Beschreibung |
+|---|---|---|
+| `GET` | `/api/absenzen` | Absenzen-Übersicht aller Module + Stats (Ø-Anwesenheit, unter Minimum, Abwesenheiten gesamt) |
+| `GET` | `/api/absenzen/:code/termine` | Tagesliste (Lektionen mit Status) eines Moduls per `kuerzel_code` |
+
 ### Scrape
 
 | Methode | Pfad | Beschreibung |
