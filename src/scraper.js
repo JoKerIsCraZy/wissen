@@ -1436,7 +1436,9 @@ async function runScrape(config, onLog, onPhase) {
     // Capture-Race, keine Abhängigkeit von der UI-Seitengröße. Best-effort:
     // ein Fehler hier fällt auf die passiv erfassten Responses zurück.
     try {
-      const firstReq = absDwrReqCapture ? absDwrReqCapture.getFirst() : null;
+      // absDwrReqCapture ist hier garantiert gesetzt (Zuweisung vor Promise.all,
+      // Fehler davor landen im äusseren catch) → kein Truthy-Guard nötig.
+      const firstReq = absDwrReqCapture.getFirst();
       if (firstReq && absenzenPage) {
         const bumpedBody = bumpDwrPagingLimit(firstReq.postData, 1000);
         // Vom Browser verbotene/automatische Header herausfiltern — fetch setzt
@@ -1460,7 +1462,8 @@ async function runScrape(config, onLog, onPhase) {
     } catch (e) {
       log('  [Absenzen] ⚠️  Voll-Suche fehlgeschlagen (' + (e && e.message ? e.message : e) + ') — Fallback auf passiv erfasste Responses', 'warn');
     }
-    if (absDwrReqCapture) { try { absDwrReqCapture.stop(); } catch (_) {} absDwrReqCapture = null; }
+    // Stop ist null-sicher im try (Property-Zugriff ist drin); kein Guard nötig.
+    try { absDwrReqCapture.stop(); } catch (_) {} absDwrReqCapture = null;
 
     // FALLBACK: passiv mitgeschnittene Search-Responses — nur falls die
     // Voll-Suche 0 lieferte (z.B. Body-Abgriff fehlgeschlagen). Capture in jedem

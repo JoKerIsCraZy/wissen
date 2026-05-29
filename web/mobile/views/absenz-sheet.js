@@ -482,7 +482,7 @@
 
   async function openAbsenzModulSheet(code) {
     if (!code) return;
-    const handle = attach(code || 'Absenzen');
+    const handle = attach(code);
     try {
       const data = await apiFetch(
         '/api/absenzen/' + encodeURIComponent(code) + '/termine'
