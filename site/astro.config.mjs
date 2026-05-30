@@ -27,7 +27,7 @@ export default defineConfig({
       // CSS unsichtbar; data-theme wird hart auf "dark" gesetzt unten via
       // Inline-Skript im head.
       pagefind: true,
-      customCss: ['./src/styles/custom.css'],
+      customCss: ['./src/styles/custom.css', './src/styles/docs.css'],
       components: {
         PageTitle: './src/components/overrides/PageTitle.astro',
       },

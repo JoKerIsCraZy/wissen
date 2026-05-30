@@ -374,56 +374,12 @@ header label:has(select[name*="theme"]) {
 }
 
 /* ============================================================
-   Content polish — links, callouts, code, tables
+   Content polish — Doku-Lesefläche (Links, Callouts/Asides, Code,
+   Tabellen, Lese-Rhythmus, Sidebar/TOC/Pagination) lebt jetzt in
+   ./docs.css ("Luminous Depth"), eingehängt NACH dieser Datei.
+   Hier bewusst entfernt, weil mehrere Alt-Regeln höhere Spezifität
+   hatten und den neuen Doku-Stil sonst überschrieben hätten.
    ============================================================ */
-
-.sl-markdown-content a:not(:where(.not-content *)) {
-  text-underline-offset: 0.25em;
-  text-decoration-thickness: 1px;
-  text-decoration-color: color-mix(in oklab, var(--sl-color-text-accent) 45%, transparent);
-  transition: text-decoration-color 150ms ease;
-}
-
-.sl-markdown-content a:not(:where(.not-content *)):hover {
-  text-decoration-color: var(--sl-color-text-accent);
-}
-
-.sl-markdown-content :not(a) > code {
-  background: var(--sl-color-bg-accent);
-  border: 1px solid var(--sl-color-hairline-light);
-  padding: 0.1em 0.45em;
-  border-radius: 0.35rem;
-  font-size: 0.875em;
-}
-
-.expressive-code,
-.sl-markdown-content pre {
-  border-radius: 0.75rem;
-  border: 1px solid var(--sl-color-hairline);
-  overflow: hidden;
-  box-shadow: 0 6px 20px -8px rgba(0, 0, 0, 0.25);
-}
-
-.sl-markdown-content table {
-  border-radius: 0.5rem;
-  overflow: hidden;
-  border: 1px solid var(--sl-color-hairline);
-}
-
-.sl-markdown-content thead tr {
-  background: var(--sl-color-bg-accent);
-}
-
-.sl-markdown-content th {
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-
-/* Callouts: a touch more presence */
-.starlight-aside {
-  border-radius: 0.75rem;
-  border-left-width: 3px;
-}
 
 /* ============================================================
    Custom: feature grid cards (used on landing via CardGrid)
