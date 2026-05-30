@@ -44,6 +44,12 @@ test('statusLabel: abwesend_unentschuldigt → danger', () => {
   assert.strictEqual(r.text, 'Unentschuldigt');
 });
 
+test('statusLabel: abwesend_prozent → danger ("Abwesend X%")', () => {
+  const r = statusLabel('abwesend_prozent');
+  assert.strictEqual(r.tone, 'danger');
+  assert.strictEqual(r.text, 'Abwesend');
+});
+
 test('statusLabel: unbekannt/leer/null → neutral (nie still als Absenz werten)', () => {
   // §3: 'unbekannt' gilt als nicht-pushend; UI darf es nie als danger/warning zeigen.
   assert.strictEqual(statusLabel('unbekannt').tone, 'neutral');

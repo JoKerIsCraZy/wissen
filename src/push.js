@@ -452,20 +452,29 @@ function notifyPruefungenChanges(report, database) {
   }, database);
 }
 
+// Anzeige-Wort einer Absenz-Kategorie für die Push-Texte. "Abwesend X%" zeigt
+// den echten Roh-Wortlaut (status_raw), sonst die feste Kategorie-Bezeichnung.
+function absenzKategorieLabel(lek) {
+  if (lek.status_cat === 'abwesend_unentschuldigt') return 'unentschuldigt';
+  if (lek.status_cat === 'abwesend_prozent') return lek.status_raw || 'abwesend';
+  if (lek.status_cat === 'abwesend_entschuldigt') return 'entschuldigt';
+  return lek.status_cat || '';
+}
+
 // Formatiert einen einzelnen newAbwesend-Eintrag als Push-Body-Zeile.
 // statusChanged === true → "Status geändert: <kategorie>"; sonst je nach
-// Kategorie unentschuldigt/entschuldigt differenziert. Mirror der Telegram-
-// Variante (bot/notify.js), aber als reiner Text ohne HTML (Web-Push-Body).
+// Kategorie differenziert. Mirror der Telegram-Variante (bot/notify.js), aber
+// als reiner Text ohne HTML (Web-Push-Body).
 function absenzLektionLine(lek) {
   const termin = lek.termin_raw || lek.termin_iso || '';
   if (lek.statusChanged) {
-    const label = lek.status_cat === 'abwesend_unentschuldigt'
-      ? 'unentschuldigt'
-      : (lek.status_cat === 'abwesend_entschuldigt' ? 'entschuldigt' : (lek.status_cat || ''));
-    return termin + ': Status geändert → ' + label;
+    return termin + ': Status geändert → ' + absenzKategorieLabel(lek);
   }
   if (lek.status_cat === 'abwesend_unentschuldigt') {
     return termin + ': UNENTSCHULDIGT abwesend';
+  }
+  if (lek.status_cat === 'abwesend_prozent') {
+    return termin + ': ' + (lek.status_raw || 'abwesend');
   }
   return termin + ': abwesend (entschuldigt)';
 }
@@ -487,8 +496,10 @@ function notifyNeueAbsenzen(report, database) {
   if (report.length <= 3) {
     const tasks = report.map((m) => {
       const subj = m.bezeichnung || m.kuerzel_code || 'Modul';
-      // Titel-Icon nach "schwerster" Kategorie im Modul: unentschuldigt > Rest.
-      const hasUnent = (m.lektionen || []).some(l => l.status_cat === 'abwesend_unentschuldigt');
+      // Titel-Icon nach "schwerster" Kategorie im Modul: unentschuldigt /
+      // "Abwesend X%" → ⚠️, Rest → ℹ️.
+      const hasUnent = (m.lektionen || []).some(l =>
+        l.status_cat === 'abwesend_unentschuldigt' || l.status_cat === 'abwesend_prozent');
       const title = (hasUnent ? '⚠️ Absenz: ' : 'ℹ️ Absenz: ') + subj;
       const body = capBody((m.lektionen || []).map(absenzLektionLine).join('; '));
       return sendToAll({

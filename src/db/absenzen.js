@@ -1,6 +1,6 @@
 'use strict';
 
-const { parsePosNum, normalizeAbsenzStatus, isAbwesend } = require('./parsers');
+const { parsePosNum, normalizeAbsenzStatus, isAbwesendPush } = require('./parsers');
 const { IS_FRESH_SQL } = require('./queries');
 const { invalidateStatsCache } = require('./stats');
 
@@ -266,13 +266,15 @@ function markAbsenzDetailScraped(db, kuerzelCode) {
 //  - Sonst: Upsert pro Eintrag (status via normalizeAbsenzStatus) + DELETE der
 //    nicht mehr vorhandenen Lektionen.
 //
-// newAbwesend (Spec §9) sammelt die Push-Kandidaten:
-//  - neue Lektion mit isAbwesend(new)            → Kandidat
-//  - prev !isAbwesend & new isAbwesend           → Flip → newAbwesend
-//  - prev isAbwesend & new isAbwesend & prev≠new → Status-Wechsel → newAbwesend
-//  - Flip → teilgenommen/offen                    → nie
-//  - entfernte (gelöschte) Lektion                → nie in newAbwesend
-// Bei newAbwesend.length>0 → markFresh auf die absenzen-Zeile.
+// newAbwesend (Spec §9) sammelt die Push-Kandidaten. Push-Würdigkeit =
+// isAbwesendPush (unentschuldigt + "Abwesend X%"; entschuldigt NICHT):
+//  - neue Lektion mit isAbwesendPush(new)               → Kandidat
+//  - prev !push & new push                              → Flip → newAbwesend
+//  - prev push & new push & prev≠new                    → Status-Wechsel → newAbwesend
+//  - Flip → teilgenommen/offen/entschuldigt             → nie
+//  - entfernte (gelöschte) Lektion                       → nie in newAbwesend
+// status_raw wird mitgereicht, damit der Push den echten Wortlaut ("Abwesend
+// 50%") zeigen kann. Bei newAbwesend.length>0 → markFresh auf die absenzen-Zeile.
 //
 // HINWEIS Cold-Start: saveLektionen liefert beim Erst-Befüllen historische
 // Abwesenheiten als Kandidaten (kein prev) — der zweite Cold-Start-Filter sitzt
@@ -326,25 +328,26 @@ function saveLektionen(db, kuerzelCode, entries) {
 
       if (!prev) {
         stats.inserted++;
-        if (isAbwesend(statusCat)) {
+        if (isAbwesendPush(statusCat)) {
           stats.newAbwesend.push({
             termin_iso: row.termin_iso,
             termin_raw: row.termin_raw,
             zeit_von: row.zeit_von,
             zeit_bis: row.zeit_bis,
-            status_cat: statusCat
+            status_cat: statusCat,
+            status_raw: row.status_raw
           });
         }
       } else {
         stats.updated++;
-        const prevAbw = isAbwesend(prev.status);
-        const newAbw = isAbwesend(statusCat);
-        // Flip non-absence→absence (neue Absenz) ODER Wechsel zwischen den
-        // Absenz-Arten (entschuldigt↔unentschuldigt = "Status geändert").
-        // statusChanged unterscheidet beide für die Notify-Formatter
-        // (push.js / bot/notify.js branchen auf statusChanged → "🔄 Status geändert").
-        const flippedToAbsence = !prevAbw && newAbw;
-        const changedBetweenAbsences = prevAbw && newAbw && prev.status !== statusCat;
+        const prevPush = isAbwesendPush(prev.status);
+        const newPush = isAbwesendPush(statusCat);
+        // Flip non-push→push (neue push-würdige Absenz) ODER Wechsel zwischen
+        // zwei push-würdigen Kategorien (z.B. unentschuldigt↔"Abwesend X%" =
+        // "Status geändert"). statusChanged unterscheidet beide für die Notify-
+        // Formatter (push.js / bot/notify.js branchen auf statusChanged).
+        const flippedToAbsence = !prevPush && newPush;
+        const changedBetweenAbsences = prevPush && newPush && prev.status !== statusCat;
         if (flippedToAbsence || changedBetweenAbsences) {
           stats.newAbwesend.push({
             termin_iso: row.termin_iso,
@@ -352,6 +355,7 @@ function saveLektionen(db, kuerzelCode, entries) {
             zeit_von: row.zeit_von,
             zeit_bis: row.zeit_bis,
             status_cat: statusCat,
+            status_raw: row.status_raw,
             statusChanged: changedBetweenAbsences
           });
         }

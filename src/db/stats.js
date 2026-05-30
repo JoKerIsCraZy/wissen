@@ -94,7 +94,7 @@ function stmts(db) {
              AND minimal_pct IS NOT NULL
              AND anwesenheit_pct < minimal_pct) AS unter_minimum,
         (SELECT COUNT(*) FROM absenzen_termine
-           WHERE status IN ('abwesend_entschuldigt', 'abwesend_unentschuldigt')) AS abwesend_gesamt,
+           WHERE status IN ('abwesend_entschuldigt', 'abwesend_unentschuldigt', 'abwesend_prozent')) AS abwesend_gesamt,
         (SELECT MAX(fetched_at) FROM absenzen) AS last_fetched
     `)
   };

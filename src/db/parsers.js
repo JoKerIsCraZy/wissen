@@ -89,15 +89,22 @@ function parsePosNum(raw) {
 }
 
 // Status-Normalisierung — single source of truth (Spec §3). Mappt den rohen
-// Tocco-Status-Text auf genau eine von 5 Kategorien. Alles Unbekannte landet in
+// Tocco-Status-Text auf genau eine von 6 Kategorien. Alles Unbekannte landet in
 // 'unbekannt' (gilt als nicht-pushend; wird NIE still zu "abwesend" gezwungen).
 //
 // Tolerant: trimmt, ist case-insensitive und matched per Schlüsselwort-Reihenfolge
 // (spezifisch vor generisch — "nicht teilgenommen unentschuldigt" muss vor dem
 // blossen "teilgenommen"-Match greifen).
+//
+// 'abwesend_prozent' deckt "Abwesend X%" (jede Prozentzahl) ab. Generischer
+// 'abwesend'-Match statt Einzel-Pflege jeder %-Zahl; auch ein vom Scraper
+// angehängtes " Zur Übersicht" greift dadurch. Diese Kategorie ist immer
+// push-würdig (User-Entscheid), darum NICHT in entschuldigt/unentschuldigt
+// gesplittet.
 function normalizeAbsenzStatus(raw) {
   const t = String(raw == null ? '' : raw).trim().toLowerCase();
   if (!t) return 'unbekannt';
+  if (/abwesend/.test(t)) return 'abwesend_prozent';
   const nichtTeilgenommen = /nicht\s+teilgenommen/.test(t);
   if (nichtTeilgenommen) {
     if (/unentschuldigt/.test(t)) return 'abwesend_unentschuldigt';
@@ -109,11 +116,21 @@ function normalizeAbsenzStatus(raw) {
   return 'unbekannt';
 }
 
-// Echte Abwesenheit (entschuldigt ODER unentschuldigt). 'offen'/'teilgenommen'/
-// 'unbekannt' sind KEINE Abwesenheit. Treibt die Push-Diff-Logik in
-// saveLektionen (Spec §3/§9).
+// Echte Abwesenheit (entschuldigt, unentschuldigt ODER prozentual). Semantische
+// Prüfung für Anzeige/Zählung. 'offen'/'teilgenommen'/'unbekannt' sind KEINE
+// Abwesenheit.
 function isAbwesend(cat) {
-  return cat === 'abwesend_entschuldigt' || cat === 'abwesend_unentschuldigt';
+  return cat === 'abwesend_entschuldigt'
+    || cat === 'abwesend_unentschuldigt'
+    || cat === 'abwesend_prozent';
+}
+
+// Push-würdige Abwesenheit (Spec §3/§9 + User-Entscheid 2026-05): nur
+// "Nicht teilgenommen unentschuldigt" und "Abwesend X%" lösen einen Push aus.
+// 'abwesend_entschuldigt' ist eine echte Absenz (isAbwesend=true), pusht aber
+// bewusst NICHT. Treibt die Push-Diff-Logik in saveLektionen.
+function isAbwesendPush(cat) {
+  return cat === 'abwesend_unentschuldigt' || cat === 'abwesend_prozent';
 }
 
 module.exports = {
@@ -127,5 +144,6 @@ module.exports = {
   parseGewichtPct,
   parsePosNum,
   normalizeAbsenzStatus,
-  isAbwesend
+  isAbwesend,
+  isAbwesendPush
 };

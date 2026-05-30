@@ -132,8 +132,9 @@ CREATE TABLE IF NOT EXISTS absenzen (
 );
 
 -- Tagesdetail pro Lektion. status ist die NORMALISIERTE Kategorie
--- (teilgenommen|offen|abwesend_entschuldigt|abwesend_unentschuldigt|unbekannt),
--- status_raw zusätzlich für die Anzeige. UNIQUE über (code, datum, von) —
+-- (teilgenommen|offen|abwesend_entschuldigt|abwesend_unentschuldigt|
+--  abwesend_prozent|unbekannt), status_raw zusätzlich für die Anzeige.
+-- UNIQUE über (code, datum, von) —
 -- Phase-0 ggf. um zeit_bis ergänzen falls (datum, von) nicht eindeutig.
 CREATE TABLE IF NOT EXISTS absenzen_termine (
   id               INTEGER PRIMARY KEY AUTOINCREMENT,

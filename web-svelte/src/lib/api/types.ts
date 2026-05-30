@@ -295,6 +295,7 @@ export type AbsenzStatus =
 	| 'offen'
 	| 'abwesend_entschuldigt'
 	| 'abwesend_unentschuldigt'
+	| 'abwesend_prozent'
 	| 'unbekannt'
 	| (string & {});
 

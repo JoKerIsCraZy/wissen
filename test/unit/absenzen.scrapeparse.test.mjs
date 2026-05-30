@@ -166,6 +166,41 @@ test('parseAbsenzLektionen: alle 4 Status-Werte werden RAW emittiert', () => {
   });
 });
 
+test('parseAbsenzLektionen: "Abwesend X%" bleibt Status (mit separater %-Zelle)', () => {
+  // Status "Abwesend 50%" enthält selbst ein % — die buchstabenlose
+  // Anwesenheits-Zelle (50%) muss als anwesenheit_pct greifen, der
+  // buchstabenhaltige Status darf NICHT verschluckt werden.
+  const text = [
+    'Termin', 'Lektionen Soll', 'Lektionen Ist', 'Anwesenheit (%)', 'Status',
+    'Montag, 13. Oktober 2025, 08:30 - 12:00', '4.00', '2.00', '50%', 'Abwesend 50%'
+  ].join('\n');
+
+  const rows = parseAbsenzLektionen(text);
+
+  assert.strictEqual(rows.length, 1);
+  assert.strictEqual(rows[0].lektionen_soll, 4);
+  assert.strictEqual(rows[0].lektionen_ist, 2);
+  assert.strictEqual(rows[0].anwesenheit_pct, 50);
+  assert.strictEqual(rows[0].status_raw, 'Abwesend 50%');
+});
+
+test('parseAbsenzLektionen: "Abwesend 100%" ohne separate %-Zelle bleibt Status', () => {
+  // Falls Tocco keine eigene Anwesenheits-Spalte rendert: das % im Status darf
+  // NICHT als anwesenheit_pct verschluckt werden (sonst status_raw leer → kein Push).
+  const text = [
+    'Termin', 'Lektionen Soll', 'Lektionen Ist', 'Status',
+    'Montag, 13. Oktober 2025, 08:30 - 12:00', '4.00', '0.00', 'Abwesend 100%'
+  ].join('\n');
+
+  const rows = parseAbsenzLektionen(text);
+
+  assert.strictEqual(rows.length, 1);
+  assert.strictEqual(rows[0].lektionen_soll, 4);
+  assert.strictEqual(rows[0].lektionen_ist, 0);
+  assert.strictEqual(rows[0].anwesenheit_pct, null);
+  assert.strictEqual(rows[0].status_raw, 'Abwesend 100%');
+});
+
 test('parseAbsenzLektionen: multi-line Termin (Zell-Umbruch) wird zu vollem ISO', () => {
   // Tocco bricht die Termin-Zelle über zwei Zeilen — der Trenner ist trotzdem
   // der Wochentag, die zweite Zeile gehört zum selben Record.
