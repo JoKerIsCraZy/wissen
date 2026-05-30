@@ -346,7 +346,8 @@ async function notifyPruefungenChanges(report) {
  * Einträge (siehe saveLektionen-Vertrag §9). Text ist nach Kategorie
  * differenziert:
  *   abwesend_unentschuldigt → "⚠️ … UNENTSCHULDIGT abwesend"
- *   abwesend_entschuldigt   → "ℹ️ … abwesend (entschuldigt)"
+ *   abwesend_prozent        → "🚫 … <status_raw>" (z.B. "Abwesend 50%")
+ *   abwesend_entschuldigt   → "ℹ️ … abwesend (entschuldigt)" (pusht i.d.R. nicht)
  *   Status-Wechsel          → "… Status geändert: <neu>"
  *
  * report: Array von { kuerzel_code, bezeichnung, lektionen: newAbwesend[] }
@@ -378,12 +379,16 @@ async function notifyNeueAbsenzen(report) {
     for (const l of sorted) {
       const termin = escapeHtml(l.termin_raw || l.termin_iso || '');
       if (l.statusChanged) {
-        const label = l.status_cat === 'abwesend_unentschuldigt'
-          ? 'unentschuldigt'
-          : (l.status_cat === 'abwesend_entschuldigt' ? 'entschuldigt' : escapeHtml(String(l.status_cat || '')));
+        let label;
+        if (l.status_cat === 'abwesend_unentschuldigt') label = 'unentschuldigt';
+        else if (l.status_cat === 'abwesend_prozent') label = escapeHtml(l.status_raw || 'abwesend');
+        else if (l.status_cat === 'abwesend_entschuldigt') label = 'entschuldigt';
+        else label = escapeHtml(String(l.status_cat || ''));
         text += '   🔄 ' + termin + ' — Status geändert: <b>' + label + '</b>\n';
       } else if (l.status_cat === 'abwesend_unentschuldigt') {
         text += '   ⚠️ ' + termin + ' — <b>UNENTSCHULDIGT</b> abwesend\n';
+      } else if (l.status_cat === 'abwesend_prozent') {
+        text += '   🚫 ' + termin + ' — <b>' + escapeHtml(l.status_raw || 'Abwesend') + '</b>\n';
       } else {
         text += '   ℹ️ ' + termin + ' — abwesend (entschuldigt)\n';
       }

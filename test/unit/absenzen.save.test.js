@@ -53,22 +53,41 @@ test('saveLektionen: teilgenommen/offen erzeugen NIE newAbwesend', () => {
   db.closeInstance();
 });
 
-test('saveLektionen: Flip non-absence → absence wird gemeldet', () => {
+test('saveLektionen: Flip non-absence → unentschuldigt wird gemeldet', () => {
   const { db, d } = setup();
   db.saveLektionen(d, 'M1', [
     { termin_iso: '2025-10-13', zeit_von: '08:30', status_raw: 'Offen' }
   ]);
   const r = db.saveLektionen(d, 'M1', [
-    { termin_iso: '2025-10-13', zeit_von: '08:30', status_raw: 'Nicht teilgenommen entschuldigt' }
+    { termin_iso: '2025-10-13', zeit_von: '08:30', status_raw: 'Nicht teilgenommen unentschuldigt' }
   ]);
   assert.strictEqual(r.updated, 1);
   assert.strictEqual(r.newAbwesend.length, 1);
-  assert.strictEqual(r.newAbwesend[0].status_cat, 'abwesend_entschuldigt');
+  assert.strictEqual(r.newAbwesend[0].status_cat, 'abwesend_unentschuldigt');
   assert.strictEqual(r.newAbwesend[0].statusChanged, false); // neue Absenz, NICHT "Status geändert"
   db.closeInstance();
 });
 
-test('saveLektionen: Wechsel entschuldigt → unentschuldigt wird gemeldet', () => {
+test('saveLektionen: "Nicht teilgenommen entschuldigt" pusht NICHT (User-Entscheid)', () => {
+  const { db, d } = setup();
+  // Neu (kein prev): entschuldigt ist eine echte Absenz, aber nicht push-würdig.
+  const r1 = db.saveLektionen(d, 'M1', [
+    { termin_iso: '2025-10-13', zeit_von: '08:30', status_raw: 'Nicht teilgenommen entschuldigt' }
+  ]);
+  assert.strictEqual(r1.inserted, 1);
+  assert.strictEqual(r1.newAbwesend.length, 0);
+  // Flip Offen → entschuldigt darf ebenfalls nicht pushen.
+  db.saveLektionen(d, 'M2', [
+    { termin_iso: '2025-10-13', zeit_von: '08:30', status_raw: 'Offen' }
+  ]);
+  const r2 = db.saveLektionen(d, 'M2', [
+    { termin_iso: '2025-10-13', zeit_von: '08:30', status_raw: 'Nicht teilgenommen entschuldigt' }
+  ]);
+  assert.strictEqual(r2.newAbwesend.length, 0);
+  db.closeInstance();
+});
+
+test('saveLektionen: Wechsel entschuldigt → unentschuldigt pusht (als neue Absenz)', () => {
   const { db, d } = setup();
   db.saveLektionen(d, 'M1', [
     { termin_iso: '2025-10-13', zeit_von: '08:30', status_raw: 'Nicht teilgenommen entschuldigt' }
@@ -78,7 +97,51 @@ test('saveLektionen: Wechsel entschuldigt → unentschuldigt wird gemeldet', () 
   ]);
   assert.strictEqual(r.newAbwesend.length, 1);
   assert.strictEqual(r.newAbwesend[0].status_cat, 'abwesend_unentschuldigt');
-  assert.strictEqual(r.newAbwesend[0].statusChanged, true); // entschuldigt→unentschuldigt = "Status geändert"
+  // entschuldigt ist nicht push-würdig → Flip-zu-Push, KEIN "Status geändert".
+  assert.strictEqual(r.newAbwesend[0].statusChanged, false);
+  db.closeInstance();
+});
+
+// ---------- saveLektionen: "Abwesend X%" (prozentuale Abwesenheit) ----------
+
+test('saveLektionen: neue "Abwesend 50%"-Lektion pusht + reicht status_raw durch', () => {
+  const { db, d } = setup();
+  const r = db.saveLektionen(d, 'M1', [
+    { termin_iso: '2025-10-13', zeit_von: '08:30', status_raw: 'Abwesend 50%' }
+  ]);
+  assert.strictEqual(r.inserted, 1);
+  assert.strictEqual(r.newAbwesend.length, 1);
+  assert.strictEqual(r.newAbwesend[0].status_cat, 'abwesend_prozent');
+  assert.strictEqual(r.newAbwesend[0].status_raw, 'Abwesend 50%');
+  db.closeInstance();
+});
+
+test('saveLektionen: Flip Teilgenommen → "Abwesend 100%" pusht (kein Status-Wechsel)', () => {
+  const { db, d } = setup();
+  db.saveLektionen(d, 'M1', [
+    { termin_iso: '2025-10-13', zeit_von: '08:30', status_raw: 'Teilgenommen' }
+  ]);
+  const r = db.saveLektionen(d, 'M1', [
+    { termin_iso: '2025-10-13', zeit_von: '08:30', status_raw: 'Abwesend 100%' }
+  ]);
+  assert.strictEqual(r.newAbwesend.length, 1);
+  assert.strictEqual(r.newAbwesend[0].status_cat, 'abwesend_prozent');
+  assert.strictEqual(r.newAbwesend[0].statusChanged, false);
+  db.closeInstance();
+});
+
+test('saveLektionen: Wechsel unentschuldigt → "Abwesend 100%" = Status geändert', () => {
+  const { db, d } = setup();
+  db.saveLektionen(d, 'M1', [
+    { termin_iso: '2025-10-13', zeit_von: '08:30', status_raw: 'Nicht teilgenommen unentschuldigt' }
+  ]);
+  const r = db.saveLektionen(d, 'M1', [
+    { termin_iso: '2025-10-13', zeit_von: '08:30', status_raw: 'Abwesend 100%' }
+  ]);
+  assert.strictEqual(r.newAbwesend.length, 1);
+  assert.strictEqual(r.newAbwesend[0].status_cat, 'abwesend_prozent');
+  // beide Kategorien push-würdig, Kategorie wechselt → "Status geändert".
+  assert.strictEqual(r.newAbwesend[0].statusChanged, true);
   db.closeInstance();
 });
 

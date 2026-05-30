@@ -48,6 +48,10 @@
         return { label: 'Entschuldigt', cls: 'm-att-badge--entschuldigt' };
       case 'abwesend_unentschuldigt':
         return { label: 'Unentschuldigt', cls: 'm-att-badge--unentschuldigt' };
+      case 'abwesend_prozent':
+        // "Abwesend X%" — der echte Wortlaut kommt aus status_raw (siehe
+        // lektionCard); Ton wie unentschuldigt (rot, zählt gegen den User).
+        return { label: 'Abwesend', cls: 'm-att-badge--unentschuldigt' };
       default:
         return { label: 'Unbekannt', cls: 'm-att-badge--offen' };
     }
@@ -218,10 +222,14 @@
     const info = statusInfo(r.status);
     const badge = document.createElement('span');
     badge.className = 'm-att-badge ' + info.cls;
-    // status_raw bevorzugen (echter Wortlaut), aber gekürzt; Fallback Label.
-    badge.textContent = info.label;
-    // Voller Roh-String als Tooltip + aria, falls er vom Label abweicht.
-    if (r.status_raw && r.status_raw !== info.label) {
+    // Bei "Abwesend X%" den echten Roh-Wortlaut (inkl. Prozentzahl) zeigen,
+    // sonst das feste Kategorie-Label.
+    const badgeText = (r.status === 'abwesend_prozent' && r.status_raw)
+      ? r.status_raw
+      : info.label;
+    badge.textContent = badgeText;
+    // Voller Roh-String als Tooltip + aria, falls er vom angezeigten Text abweicht.
+    if (r.status_raw && r.status_raw !== badgeText) {
       badge.title = r.status_raw;
       badge.setAttribute('aria-label', r.status_raw);
     }

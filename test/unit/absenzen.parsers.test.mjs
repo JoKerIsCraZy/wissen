@@ -11,7 +11,7 @@ import assert from 'node:assert';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { normalizeAbsenzStatus, parsePosNum, isAbwesend } = require('../../src/db/parsers');
+const { normalizeAbsenzStatus, parsePosNum, isAbwesend, isAbwesendPush } = require('../../src/db/parsers');
 
 test('normalizeAbsenzStatus mappt die 4 bestätigten Status-Werte', () => {
   assert.strictEqual(normalizeAbsenzStatus('Teilgenommen'), 'teilgenommen');
@@ -24,6 +24,17 @@ test('normalizeAbsenzStatus mappt die 4 bestätigten Status-Werte', () => {
     normalizeAbsenzStatus('Nicht teilgenommen unentschuldigt'),
     'abwesend_unentschuldigt'
   );
+});
+
+test('normalizeAbsenzStatus: "Abwesend X%" → abwesend_prozent (jede Prozentzahl)', () => {
+  // Eigene Kategorie für die prozentuale Abwesenheit. Generischer 'abwesend'-
+  // Match deckt 50/100/25 % usw. ohne Einzel-Pflege ab.
+  assert.strictEqual(normalizeAbsenzStatus('Abwesend 50%'), 'abwesend_prozent');
+  assert.strictEqual(normalizeAbsenzStatus('Abwesend 100%'), 'abwesend_prozent');
+  assert.strictEqual(normalizeAbsenzStatus('Abwesend 25%'), 'abwesend_prozent');
+  assert.strictEqual(normalizeAbsenzStatus('  ABWESEND 75 %  '), 'abwesend_prozent');
+  // Der Scraper hängt teils " Zur Übersicht" an — muss trotzdem greifen.
+  assert.strictEqual(normalizeAbsenzStatus('Abwesend 100% Zur Übersicht'), 'abwesend_prozent');
 });
 
 test('normalizeAbsenzStatus ist tolerant gegen Case/Whitespace', () => {
@@ -51,13 +62,26 @@ test('normalizeAbsenzStatus: alles Unbekannte → unbekannt (nicht-pushend)', ()
   assert.strictEqual(normalizeAbsenzStatus(undefined), 'unbekannt');
 });
 
-test('isAbwesend ist nur für die beiden abwesend_*-Kategorien wahr', () => {
+test('isAbwesend ist für alle abwesend_*-Kategorien wahr (inkl. prozent)', () => {
   assert.strictEqual(isAbwesend('abwesend_entschuldigt'), true);
   assert.strictEqual(isAbwesend('abwesend_unentschuldigt'), true);
+  assert.strictEqual(isAbwesend('abwesend_prozent'), true);
   assert.strictEqual(isAbwesend('teilgenommen'), false);
   assert.strictEqual(isAbwesend('offen'), false);
   assert.strictEqual(isAbwesend('unbekannt'), false);
   assert.strictEqual(isAbwesend(null), false);
+});
+
+test('isAbwesendPush: nur unentschuldigt + prozent pushen, entschuldigt NICHT', () => {
+  // User-Entscheid: "Abwesend X%" + "Nicht teilgenommen unentschuldigt" pushen,
+  // "Nicht teilgenommen entschuldigt" bewusst NICHT (echte Absenz, aber kein Push).
+  assert.strictEqual(isAbwesendPush('abwesend_unentschuldigt'), true);
+  assert.strictEqual(isAbwesendPush('abwesend_prozent'), true);
+  assert.strictEqual(isAbwesendPush('abwesend_entschuldigt'), false);
+  assert.strictEqual(isAbwesendPush('teilgenommen'), false);
+  assert.strictEqual(isAbwesendPush('offen'), false);
+  assert.strictEqual(isAbwesendPush('unbekannt'), false);
+  assert.strictEqual(isAbwesendPush(null), false);
 });
 
 test('parsePosNum extrahiert Dezimal-Punkt und -Komma', () => {

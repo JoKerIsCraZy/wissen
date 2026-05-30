@@ -160,6 +160,22 @@ test('notifyNeueAbsenzen: entschuldigt vs unentschuldigt vs Status geändert dif
   assert.match(body, /Status geändert/, 'Status-Wechsel-Phrase');
 });
 
+test('notifyNeueAbsenzen: "Abwesend X%" zeigt den echten Status-Wortlaut im Body', async () => {
+  freshTmp();
+  const sent = [];
+  const push = loadPush(sent, [makeSub('prozent')]);
+  await push.notifyNeueAbsenzen([{
+    kuerzel_code: 'M-1',
+    bezeichnung: 'Modul Eins',
+    lektionen: [
+      { termin_iso: '2025-10-01', termin_raw: 'Mi 1', status_cat: 'abwesend_prozent', status_raw: 'Abwesend 50%' }
+    ]
+  }], null);
+  assert.strictEqual(sent.length, 1);
+  assert.match(sent[0].payload.body, /Abwesend 50%/, 'Body zeigt den Roh-Status');
+  assert.match(sent[0].payload.title, /^⚠️/, 'prozentuale Absenz → ⚠️-Titel');
+});
+
 test('notifyNeueAbsenzen: >3 Module → Summary-Push', async () => {
   freshTmp();
   const sent = [];

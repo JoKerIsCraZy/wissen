@@ -6,21 +6,23 @@
    Reine, seiteneffektfreie Funktionen, damit die Logik unabhängig vom
    Svelte-Compiler test- und im Mobile (web/mobile/) spiegelbar ist.
 
-   Status-Kategorien (normalisiert, §3 der Spec — fix):
-     teilgenommen · offen · abwesend_entschuldigt · abwesend_unentschuldigt
+   Status-Kategorien (normalisiert, §3 der Spec):
+     teilgenommen · offen · abwesend_entschuldigt · abwesend_unentschuldigt ·
+     abwesend_prozent ("Abwesend X%")
    Alles andere (inkl. 'unbekannt') fällt auf den neutralen Ton zurück.
 
-   Pill-Zuordnung (§10 der Spec — fix):
+   Pill-Zuordnung (§10 der Spec):
      teilgenommen            → has      (gut/grün)
      offen                   → neutral  (gedämpft)
      abwesend_entschuldigt   → warning  (orange)
      abwesend_unentschuldigt → danger   (rot)
+     abwesend_prozent        → danger   (rot)
 
    Spezifikation + Tests: test/unit/absenzen.helpers.test.mjs.
    ============================================================ */
 
 /**
- * @typedef {'teilgenommen'|'offen'|'abwesend_entschuldigt'|'abwesend_unentschuldigt'|'unbekannt'|(string & {})} AbsenzStatusCat
+ * @typedef {'teilgenommen'|'offen'|'abwesend_entschuldigt'|'abwesend_unentschuldigt'|'abwesend_prozent'|'unbekannt'|(string & {})} AbsenzStatusCat
  */
 
 /**
@@ -45,6 +47,9 @@ export function statusLabel(cat) {
       return { text: 'Entschuldigt', tone: 'warning' };
     case 'abwesend_unentschuldigt':
       return { text: 'Unentschuldigt', tone: 'danger' };
+    case 'abwesend_prozent':
+      // "Abwesend X%" — push-würdige Abwesenheit, rot wie unentschuldigt.
+      return { text: 'Abwesend', tone: 'danger' };
     case 'offen':
       return { text: 'Offen', tone: 'neutral' };
     default:

@@ -842,7 +842,11 @@ function parseAbsenzLektionen(text) {
     const statusParts = [];
     for (let j = k; j < buf.length; j++) {
       const l = buf[j];
-      if (pctRe.test(l) && anwesenheit_pct == null) {
+      // Anwesenheits-Spalte = eine REINE Prozent-Zelle (z.B. "0%"/"100%") ohne
+      // Buchstaben. Ein buchstabenhaltiger Status wie "Abwesend 50%" enthält
+      // ebenfalls ein %, darf aber NICHT als anwesenheit_pct verschluckt werden
+      // — sonst ginge der Status (und damit der Push) verloren.
+      if (pctRe.test(l) && anwesenheit_pct == null && !/[A-Za-zÄÖÜäöüß]/.test(l)) {
         anwesenheit_pct = parseGewichtPct(l);
       } else if (decRe.test(l) && decs.length < 2) {
         decs.push(parseGewichtPct(l));
