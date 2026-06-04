@@ -119,6 +119,24 @@ const SCRAPE_TIMEOUT_MS = (() => {
   return Number.isFinite(env) && env > 0 ? env : 15 * 60 * 1000;
 })();
 
+// Entscheidet, ob dieser Cycle einen VOLL-Detail-Refresh macht (ALLE Module
+// mit detail_id neu detail-scrapen, statt nur geänderte/fehlende). Pure +
+// testbar. Trigger:
+//   - 'weekly'    : Sa-03:00-Backstop-Timer (deckt auch autoRun=aus ab).
+//   - 'manual'    : nur wenn der User manualScrapeFullDetails aktiviert hat.
+//   - 'scheduled' : am LETZTEN geplanten Lauf des Tages (opts.isLastRunOfDay)
+//                   → täglicher Voll-Refresh am Tagesende. Ersetzt den reinen
+//                   wöchentlichen Rhythmus: neue benotete LB (ohne Modulnoten-
+//                   Änderung) und Module ohne Modulnote werden so täglich statt
+//                   nur samstags nachgezogen.
+// 'telegram'/'boot' lösen bewusst KEINEN Voll-Refresh aus (inkrementell).
+function isFullDetailRefresh(reason, opts, settings) {
+  if (reason === 'weekly') return true;
+  if (reason === 'manual') return !!(settings && settings.manualScrapeFullDetails === true);
+  if (reason === 'scheduled') return !!(opts && opts.isLastRunOfDay === true);
+  return false;
+}
+
 // =============================================================
 // Factory: returns the runScrapeCycle function bound to its collaborators.
 // =============================================================
@@ -142,6 +160,13 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
 
     state.running = true;
     state.lastError = null;
+    if (reason === 'weekly') {
+      // Attempt-Marker (#1): auch ein FEHLGESCHLAGENER Weekly-Lauf markiert
+      // "versucht", damit scheduleWeeklyDetailRefresh bei Dauerfehler nicht alle
+      // 90s neu feuert (Endlos-Retry des teuersten Scrapes), sondern auf Backoff
+      // geht. lastWeeklyDetailAt bleibt success-only (Overdue-Berechnung).
+      state.lastWeeklyDetailAttemptAt = new Date().toISOString();
+    }
     scheduler.clearTimer();
     sse.setPhase(state, settings, 'starting');
     logger.log(`🚀 Scrape gestartet (reason=${reason})`, 'info');
@@ -198,6 +223,10 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
         }, 5000).unref?.();
       }
       try { scheduler.scheduleNext(); } catch (_) { /* swallow */ }
+      // Weekly-Backstop ebenfalls neu armen (#7) — sonst stirbt der Wochen-
+      // Detail-Refresh bei einem Watchdog-Timeout bis zum nächsten Reboot
+      // (kritisch wenn autoRun=aus, dann ist Weekly der einzige Voll-Refresh).
+      try { scheduler.scheduleWeeklyDetailRefresh(); } catch (_) { /* swallow */ }
     }, SCRAPE_TIMEOUT_MS);
     watchdog.unref?.();
 
@@ -247,13 +276,14 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
 
       const detailStats = { modulesScraped: 0, totalEntries: 0, errors: 0 };
       // Modul-Liste je nach Modus:
-      //   Voll-Refresh → ALLE benoteten Module mit detail_id (Cooldown ignoriert)
+      //   Voll-Refresh → ALLE Module mit detail_id (Cooldown ignoriert, auch
+      //                  Module OHNE Modulnote — siehe getKuerzelnWithDetailId)
       //   sonst        → nur Module mit gradeChange ODER ohne bisherige Prüfungen
-      // Voll-Refresh greift beim wöchentlichen Lauf UND bei einem manuellen
-      // Trigger, wenn der User manualScrapeFullDetails aktiviert hat.
+      // Voll-Refresh greift: wöchentlicher Sa-Backstop, manueller Trigger mit
+      // aktiviertem Toggle, UND der letzte geplante Lauf des Tages (täglicher
+      // Voll-Refresh am Tagesende). Siehe isFullDetailRefresh().
       const isWeekly = reason === 'weekly';
-      const fullDetailRefresh = isWeekly
-        || (reason === 'manual' && s.manualScrapeFullDetails === true);
+      const fullDetailRefresh = isFullDetailRefresh(reason, opts, s);
 
       // Absenz-Detail-Pass + Push laufen NICHT bei jedem Autorun-Lauf, sondern
       // nur beim LETZTEN geplanten Lauf des Tages (opts.isLastRunOfDay, vom
@@ -280,7 +310,9 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
         sse.setPhase(state, settings, 'noten_details');
         const refreshLabel = isWeekly
           ? ' (wöchentlicher Voll-Refresh)'
-          : (fullDetailRefresh ? ' (manueller Voll-Refresh)' : '');
+          : (reason === 'scheduled' && opts.isLastRunOfDay)
+            ? ' (täglicher Voll-Refresh, letzter Lauf des Tages)'
+            : (fullDetailRefresh ? ' (manueller Voll-Refresh)' : '');
         logger.log(`📥 Detail-Scrape für ${toScrape.length} Modul(e)${refreshLabel} — parallel via Page-Pool`, 'info');
 
         // Phase 1: parallel Detail-Scrapes feuern. Der Page-Pool im Scraper
@@ -289,8 +321,8 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
         // damit ein einzelner Fehler nicht die ganzen Detail-Daten verliert.
         const fetchResults = await Promise.allSettled(
           toScrape.map(async (m) => {
-            const entries = await scraped.scrapeDetail(m.detail_id);
-            return { m, entries };
+            const detail = await scraped.scrapeDetail(m.detail_id);
+            return { m, detail };
           })
         );
 
@@ -317,12 +349,19 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
             const errMsg = (r.reason && r.reason.message) ? r.reason.message : String(r.reason);
             logger.log(`  ❌ Detail-Scrape ${m.kuerzel_id}: ${errMsg}`, 'warn');
           } else {
-            const { entries } = r.value;
+            // scrapeDetail liefert { entries, expectedCount }; expectedCount =
+            // "Anzahl Prüfungen: N" → Lösch-Schutz gegen Teil-Scrapes (#6).
+            const { detail } = r.value;
+            const entries = (detail && Array.isArray(detail.entries)) ? detail.entries : [];
+            const expectedCount = (detail && Number.isFinite(detail.expectedCount)) ? detail.expectedCount : null;
             if (entries && entries.length) {
-              const ps = db.savePruefungen(database, m.kuerzel_id, entries);
+              const ps = db.savePruefungen(database, m.kuerzel_id, entries, { expectedCount });
               detailStats.modulesScraped++;
               detailStats.totalEntries += (ps.inserted + ps.updated);
               logger.log(`  ✓ ${m.kuerzel_id} → ${entries.length} Prüfung(en)`, 'info');
+              if (ps.incomplete) {
+                logger.log(`  ⚠️  ${m.kuerzel_id}: Teil-Scrape erkannt (${ps.scrapedCount}/${ps.expectedCount}) — Lösch-Schutz aktiv, keine Prüfung gelöscht`, 'warn');
+              }
               // Beim Voll-Refresh (wöchentlich ODER manuell): NEUE Prüfungen
               // die nicht von einem gradeChange-Push abgedeckt sind → eigener
               // Push-Eintrag. Ohne das würde ein manueller Voll-Refresh zwar
@@ -361,10 +400,14 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
               logger.log(`  ⏭️  ${m.kuerzel_id} → keine Prüfungs-Daten gefunden`, 'info');
             }
           }
-          // Cooldown-Marker setzen — egal ob Erfolg, Leer oder Fehler. So
-          // wird das Modul nicht bei jedem Cycle erneut versucht (siehe
-          // db.getKuerzelnNeedingDetailScrape Cooldown-Logik).
-          try { db.markDetailScraped(database, m.kuerzel_id); } catch (_) { /* ignore */ }
+          // Cooldown-Marker NUR bei nicht-rejectetem Outcome (Erfolg ODER
+          // leer-aber-valide). Ein transienter Fehler (Timeout, Frame detached)
+          // darf KEINEN 12h-Cooldown setzen (#10) — sonst blockiert ein
+          // einmaliger Fehler den Backfill bis zu 12h. Bei reject → kein Marker
+          // → nächster Cycle versucht es erneut.
+          if (r.status !== 'rejected') {
+            try { db.markDetailScraped(database, m.kuerzel_id); } catch (_) { /* ignore */ }
+          }
         }
       }
 
@@ -393,7 +436,9 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
         sse.setPhase(state, settings, 'absenzen_details');
         const refreshLabelAbs = isWeekly
           ? ' (wöchentlicher Voll-Refresh)'
-          : (fullDetailRefresh ? ' (manueller Voll-Refresh)' : '');
+          : (reason === 'scheduled' && opts.isLastRunOfDay)
+            ? ' (täglicher Voll-Refresh, letzter Lauf des Tages)'
+            : (fullDetailRefresh ? ' (manueller Voll-Refresh)' : '');
         logger.log(`📥 Absenz-Detail-Scrape für ${toScrapeAbs.length} Modul(e)${refreshLabelAbs} — parallel via Page-Pool`, 'info');
 
         // Phase 1: parallel feuern — der Page-Pool limited Concurrency intern.
@@ -451,7 +496,10 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
               // weeklyReport). Erst-Inserts sind nie in aChangedCodes → eine
               // Neuinstallation mit historischen Absenzen pusht 0× (§9).
               const isCovered = aChangedCodes.includes(m.kuerzel_code);
-              if (isCovered || fullDetailRefresh) {
+              // Cold-Start-Schutz (#2): beim Voll-Refresh NUR pushen, wenn das
+              // Modul in diesem Lauf NICHT erstbefüllt wurde (ls.coldStart) —
+              // sonst pusht eine Neuinstallation alle historischen Absenzen.
+              if (isCovered || (fullDetailRefresh && !ls.coldStart)) {
                 absenzReport.push({
                   kuerzel_code: m.kuerzel_code,
                   bezeichnung:  m.bezeichnung != null ? m.bezeichnung : null,
@@ -612,6 +660,12 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
           const wr = state.lastStats && state.lastStats.weeklyReport;
           if (wr && wr.length) {
             bot.notifyWeeklyDetailReport(wr);
+            // Web-Push parallel zum Telegram-Report (#12) — vorher nur Telegram.
+            if (push && typeof push.notifyWeeklyDetailReport === 'function') {
+              push.notifyWeeklyDetailReport(wr, database)
+                .then((r) => logPushResult('detail', r))
+                .catch((e) => logger.log('🔔 Push (Detail-Check) Fehler: ' + (e && e.message), 'warn'));
+            }
           }
 
           // Absenzen: Push bei neuer/geänderter Nicht-Teilnahme (§4.4). Der
@@ -639,4 +693,4 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
   return { runScrapeCycle, logPushResult, maskSettings, buildScraperConfig };
 }
 
-module.exports = { create, maskSettings, buildScraperConfig, makeLogPushResult };
+module.exports = { create, maskSettings, buildScraperConfig, makeLogPushResult, isFullDetailRefresh };

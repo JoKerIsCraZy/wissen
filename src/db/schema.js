@@ -216,6 +216,13 @@ function open(filename) {
   // SELECT, kein Cron nötig).
   ensureColumn(d, 'noten', 'change_pending', 'change_pending INTEGER NOT NULL DEFAULT 0');
   ensureColumn(d, 'noten', 'change_seen_at', 'change_seen_at TEXT');
+  // missing_streak: Lösch-Schutz gegen Teil-Scrapes (#6). Zählt, wie oft eine
+  // Prüfung in Folge im Detail-Scrape FEHLTE. savePruefungen löscht eine
+  // fehlende Prüfung erst, wenn der Scrape beweisbar vollständig war (gescrapte
+  // Anzahl >= "Anzahl Prüfungen: N") ODER der Streak den Schwellwert erreicht
+  // (2 = an zwei Checks hintereinander weg) — so überlebt eine valide Note ein
+  // einmaliges Halb-Laden der Tocco-Seite.
+  ensureColumn(d, 'noten_pruefungen', 'missing_streak', 'missing_streak INTEGER NOT NULL DEFAULT 0');
   ensureColumn(d, 'stundenplan', 'change_pending', 'change_pending INTEGER NOT NULL DEFAULT 0');
   ensureColumn(d, 'stundenplan', 'change_seen_at', 'change_seen_at TEXT');
   // Absenzen: Frisch-Marker analog noten/stundenplan. saveLektionen setzt

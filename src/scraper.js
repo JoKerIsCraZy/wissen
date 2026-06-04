@@ -452,7 +452,7 @@ async function ensureLoggedIn(config, onLog, onPhase, onBrowser) {
 }
 
 // ---------- Scraping ----------
-async function waitForToccoLoad(page, label, onLog) {
+async function waitForToccoLoad(page, label, onLog, settleMs = 600) {
   const LOADING_REGEX = /daten\s+werden\s+(ü|ue)bertragen|wird\s+geladen|loading|l(ä|ae)dt/i;
   const MAX_WAIT = 60000;
   const POLL_MS = 400;
@@ -486,7 +486,10 @@ async function waitForToccoLoad(page, label, onLog) {
   if (Date.now() - start >= MAX_WAIT) {
     onLog('  ⚠️  Max-Wait erreicht', 'warn');
   }
-  await page.waitForTimeout(600);
+  // Settle-Puffer: kurze Extra-Wartezeit NACH "Laden fertig", damit die SPA die
+  // Tabelle fertig rendert, bevor innerText gelesen wird. Detail-Seiten geben
+  // 300ms (warm, kleiner DOM); Übersichten bleiben bei 600ms (Default).
+  await page.waitForTimeout(settleMs);
 }
 
 async function setPageSize(page, size, onLog, label) {
@@ -940,7 +943,7 @@ function startDwrRequestCapture(page, urlMatcher) {
     if (req.method() !== 'POST') return;
     if (!urlMatcher.test(req.url())) return;
     let postData = null;
-    try { postData = req.postData(); } catch (_) { postData = null; }
+    try { postData = req.postData(); } catch (_) { /* postData bleibt null */ }
     if (!postData) return;
     first = { url: req.url(), postData, headers: req.headers() };
   };
@@ -1072,7 +1075,7 @@ async function scrapeModulDetail(page, baseUrl, detailId, onLog) {
 
   onLog('  📖 Detail ' + detailId + ' lädt...', 'info');
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await waitForToccoLoad(page, 'Detail ' + detailId, onLog);
+  await waitForToccoLoad(page, 'Detail ' + detailId, onLog, 300);
 
   // Gleiche Strategie wie in scrapePage: aus dem Main-Container den InnerText holen.
   const text = await safeEvaluate(page, () => {
@@ -1080,7 +1083,22 @@ async function scrapeModulDetail(page, baseUrl, detailId, onLog) {
     return main ? (main.innerText || '').trim() : '';
   });
 
-  return parsePruefungen(text);
+  // Liefert { entries, expectedCount }. expectedCount = "Anzahl Prüfungen: N"
+  // von der Seite → Vollständigkeits-Signal für den Lösch-Schutz in
+  // savePruefungen (Teil-Scrape darf keine validen Noten löschen, #6).
+  return { entries: parsePruefungen(text), expectedCount: parseAnzahlPruefungen(text) };
+}
+
+// Zieht die Soll-Anzahl Prüfungen aus dem Detail-Text ("Anzahl Prüfungen: 4").
+// Tocco rendert Label + Zahl als getrennte Zeilen → \s* (inkl. Zeilenumbruch)
+// überbrückt das. null wenn nicht lesbar (Caller behandelt das als "unbekannt"
+// → konservativer 2-Strike-Lösch-Schutz statt Sofort-Löschung).
+function parseAnzahlPruefungen(text) {
+  if (!text || typeof text !== 'string') return null;
+  const m = text.match(/Anzahl\s+Pr(?:ü|ue)fungen\s*:?\s*(\d+)/i);
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  return Number.isFinite(n) ? n : null;
 }
 
 // Text-Parser für die Detail-Tabelle.
@@ -1123,23 +1141,36 @@ function parsePruefungen(text) {
   const stopMarkers = /^(Zur(ü|ue)ck|Seite|Anzeige Eintrag|DIREKT ZU|Copyright|WISS|RECHTLICHES|zu unserem|Datenschutz|Allg\.|Alle Rechte|Ein Unternehmen|Kalaidos)/i;
 
   function commitEntry(buf, out) {
-    if (buf.length < 4) return;
+    // Mind. Nr + Bezeichnung + Gewicht. Eine noch UNBENOTETE Prüfung (z.B. eine
+    // frisch angelegte "LB 4") hat genau diese 3 Spalten — Tocco rendert die
+    // leere Bewertungs-Zelle als " ", was nach trim()+filter(Boolean) komplett
+    // wegfällt. Solche Zeilen wollen wir trotzdem erfassen (Anzeige als "—"),
+    // aber mit LEERER Bewertung emittieren → der DB-Layer macht daraus NULL und
+    // computeWeighted lässt sie aus dem Schnitt raus.
+    if (buf.length < 3) return;
     // Spaltenpositionen erkennen:
     //   buf[0]              = Pruefung-Nr (eine Ziffer)
     //   buf[gewichtIdx]     = Gewicht (enthält %)
-    //   buf[gewichtIdx+1]   = Bewertung (numerisch)
+    //   buf[gewichtIdx+1]   = Bewertung (numerisch ODER fehlend bei unbenotet)
     //   dazwischen          = Bezeichnung (kann multi-token sein)
+    // Das Gewicht am "%" erkennen — auch wenn es das LETZTE Token ist (leere
+    // Bewertung dahinter). Das frühere `buf.length - 1` (letztes Token
+    // ausgeschlossen) verschluckte genau diese unbenoteten Zeilen.
     let gewichtIdx = -1;
-    for (let i = 1; i < buf.length - 1; i++) {
+    for (let i = 1; i < buf.length; i++) {
       if (/%/.test(buf[i])) { gewichtIdx = i; break; }
     }
     if (gewichtIdx < 2) {
-      // Fallback: Annahme Bezeichnung = 1 Token
+      // Kein %-Gewichts-Anker gefunden → nur die alte 4-Spalten-Heuristik
+      // erlauben, damit wir aus Footer-/Müll-Resten keine Phantom-Prüfungen
+      // mit leerer Note erfinden.
+      if (buf.length < 4) return;
       gewichtIdx = 2;
     }
     const bezeichnung = buf.slice(1, gewichtIdx).join(' ').trim();
-    const gewicht     = buf[gewichtIdx];
-    const bewertung   = buf[gewichtIdx + 1];
+    const gewicht     = buf[gewichtIdx] || '';
+    // Bewertung = Token NACH dem Gewicht; fehlt es (unbenotete Prüfung) → ''.
+    const bewertung   = gewichtIdx + 1 < buf.length ? buf[gewichtIdx + 1] : '';
 
     const nr = parseInt(buf[0], 10);
     if (!Number.isFinite(nr)) return;
@@ -1158,10 +1189,17 @@ function parsePruefungen(text) {
   for (let i = dataStart; i < lines.length; i++) {
     const l = lines[i];
     if (stopMarkers.test(l)) break;
-    // Eine neue Zeile beginnt mit einer 1-2-stelligen Pruefung-Nr.
-    // Aber: eine Bewertung wie "4.800" enthält auch eine Ziffer am Anfang —
-    // die wird unten von commitEntry korrekt behandelt, weil sie nach dem
-    // %-Token kommt. Hier reicht: \d{1,2}$
+    // Eine neue Prüfungs-Zeile beginnt mit einer 1-2-stelligen Pruefung-Nr.
+    // Eine echte Bewertung ("4.800") matcht ^\d{1,2}$ NICHT (Dezimalpunkt) und
+    // wird korrekt als Bewertung der laufenden Zeile gepusht. Eine UNBENOTETE
+    // Zeile hat gar keine Bewertungs-Zeile (Tocco rendert die leere Zelle als
+    // " " → weggefiltert) → die nächste Nr startet sauber die Folge-Zeile.
+    //
+    // WICHTIG: NICHT versuchen, eine "blanke Ganzzahl direkt nach dem Gewicht"
+    // als Note zu interpretieren — bei unbenoteten Zeilen ist diese Ganzzahl die
+    // Prüfungs-Nr der NÄCHSTEN Zeile (z.B. LB 1 leer, dann "2" = LB 2). Beide
+    // sind 1-stellig und nicht unterscheidbar. Tocco rendert Noten ohnehin immer
+    // 3-stellig ("4.700"), also gibt es keinen realen Bare-Integer-Noten-Fall.
     if (/^\d{1,2}$/.test(l)) {
       commitEntry(buf, entries);
       buf = [l];
@@ -1190,7 +1228,7 @@ async function scrapeAbsenzModulDetail(page, baseUrl, detailId, onLog) {
 
   onLog('  📖 Absenz-Detail ' + detailId + ' lädt...', 'info');
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await waitForToccoLoad(page, 'Absenz-Detail ' + detailId, onLog);
+  await waitForToccoLoad(page, 'Absenz-Detail ' + detailId, onLog, 300);
 
   const text = await safeEvaluate(page, () => {
     const main = document.querySelector('main, #main, .main-content, .content, article, body');
@@ -1376,6 +1414,7 @@ async function runScrape(config, onLog, onPhase) {
 
   const detailIdMap = {};
   let dwrCapture = null;
+  let notenDwrReqCapture = null;
   let absDwrCapture = null;
   let absDwrReqCapture = null;
 
@@ -1395,6 +1434,12 @@ async function runScrape(config, onLog, onPhase) {
     // DWR-Calls. So bleibt das ID-Mapping sauber, auch wenn beide Pages
     // gleichzeitig fetchen.
     dwrCapture = startDwrCapture(notenPage, /SearchService\.search/i);
+    // ZUSÄTZLICH den REQUEST der Noten-Suche abgreifen (Body + Header), um ihn
+    // danach mit limit:1000 aktiv zu REPLAYEN — sonst erfasst das passive
+    // Mitschneiden oft nur die limit-25-Initialantwort und Module ab Position 26
+    // bekommen NIE eine detail_id (Bug 2026-06: 169/188/190 fehlten). Spiegelt
+    // den Absenzen-Voll-Suche-Pfad. Vor dem Promise.all registrieren.
+    notenDwrReqCapture = startDwrRequestCapture(notenPage, /SearchService\.search/i);
 
     // ZWEITE DWR-Capture — per-Page auf der Absenzen-Page, keine Kreuz-
     // kontamination mit dem Noten-Mapping (beide Listener hängen an
@@ -1482,6 +1527,40 @@ async function runScrape(config, onLog, onPhase) {
       }
     }
 
+    // PRIMÄR: Noten-Such-Request faithful mit limit:1000 REPLAYEN → deterministisch
+    // ALLE Module (statt nur der passiv erfassten limit-25-Initialantwort, die
+    // Module ab Position 26 verschluckt). Spiegelt den Absenzen-Voll-Suche-Pfad.
+    try {
+      // notenDwrReqCapture ist hier garantiert gesetzt (Zuweisung vor Promise.all,
+      // Fehler davor landen im äusseren catch) → kein Truthy-Guard nötig. Spiegelt
+      // den Absenzen-Pfad oben.
+      const firstReq = notenDwrReqCapture.getFirst();
+      if (firstReq) {
+        const bumpedBody = bumpDwrPagingLimit(firstReq.postData, 1000);
+        const safeHeaders = {};
+        for (const [k, v] of Object.entries(firstReq.headers || {})) {
+          const lk = k.toLowerCase();
+          if (lk === 'content-length' || lk === 'host' || lk === 'cookie' ||
+              lk === 'connection' || lk === 'accept-encoding') continue;
+          safeHeaders[k] = v;
+        }
+        const fullText = await notenPage.evaluate(async (a) => {
+          const r = await fetch(a.url, { method: 'POST', headers: a.headers, body: a.body, credentials: 'include' });
+          return await r.text();
+        }, { url: firstReq.url, headers: safeHeaders, body: bumpedBody });
+        const fullMap = parseDwrIdMap(fullText);
+        for (const [k, v] of Object.entries(fullMap)) {
+          if (!detailIdMap[k]) detailIdMap[k] = v;
+        }
+        if (Object.keys(detailIdMap).length) {
+          log('  [Noten] 🔑 ' + Object.keys(detailIdMap).length + ' Modul-Detail-IDs via Voll-Suche (limit 1000)', 'info');
+        }
+      }
+    } catch (e) {
+      log('  [Noten] ⚠️  Voll-Suche fehlgeschlagen (' + (e && e.message ? e.message : e) + ') — Fallback auf passiv erfasste Responses', 'warn');
+    }
+    try { notenDwrReqCapture.stop(); } catch (_) {} notenDwrReqCapture = null;
+
     // DWR-Listener stoppen — alle weiteren Detail-Calls sollen nicht das
     // ID-Mapping verfälschen. Vor dem Stop noch alle gesammelten Responses
     // abholen.
@@ -1489,8 +1568,8 @@ async function runScrape(config, onLog, onPhase) {
     dwrCapture.stop();
     dwrCapture = null;
 
-    // ID-Map aus den gesammelten Responses parsen (unverändert zur sequentiellen
-    // Variante — die Logik ist von der Parallelität nicht betroffen).
+    // FALLBACK/Ergänzung: passiv mitgeschnittene Responses füllen nur Lücken
+    // (first-wins) — die Voll-Suche oben hat Priorität.
     for (const t of dwrTexts) {
       const partial = parseDwrIdMap(t);
       for (const [k, v] of Object.entries(partial)) {
@@ -1501,8 +1580,10 @@ async function runScrape(config, onLog, onPhase) {
     const notenCount = noten.length;
     if (idCount) {
       log('  [Noten] 🔑 ' + idCount + ' Modul-Detail-IDs aus DWR extrahiert', 'info');
-      if (notenCount > 0 && idCount < notenCount * 0.5) {
-        log('  [Noten] ⚠️  DWR-ID-Map hat nur ' + idCount + '/' + notenCount + ' Module — Tocco-Format könnte sich geändert haben', 'warn');
+      // Schärfere Sanity-Warnung: schon eine einzige fehlende ID ist verdächtig
+      // (vorher erst < 50% → ein 25/28-Miss rutschte still durch).
+      if (notenCount > 0 && idCount < notenCount) {
+        log('  [Noten] ⚠️  DWR-ID-Map hat nur ' + idCount + '/' + notenCount + ' Module — Detail-Scrape überspringt die fehlenden', 'warn');
       }
     } else if (notenCount > 0) {
       log('  [Noten] ⚠️  Keine Modul-Detail-IDs gefunden — Detail-Scrape wird übersprungen', 'warn');
@@ -1525,17 +1606,19 @@ async function runScrape(config, onLog, onPhase) {
     // detailScrapeConcurrency (Default 4, konservativ wegen Tocco-
     // Server-Last + RAM). Pool wird lazy gefüllt; erste Detail-Calls
     // werden also weniger parallel laufen als der Soll-Wert sagt.
-    const POOL_DEFAULT = 4;
+    const POOL_DEFAULT = 6;  // 4 → 6: Detail-Phase ist der Flaschenhals; 6 Pool-
+                             // Pages ~720 MB Peak (vertretbar). Bei wenig RAM via
+                             // detailScrapeConcurrency wieder runtersetzen.
     const poolSize = Math.max(1, Math.min(
       Number(cfg.detailScrapeConcurrency) || POOL_DEFAULT,
-      8  // Hard cap — Tocco hat keine offiziellen Rate-Limits, aber 8+
-         // parallele DWR-Calls aus einer Session sind unrealistisch.
+      10 // Hard cap — Tocco hat keine offiziellen Rate-Limits; >10 parallele
+         // Pages aus einer Session bringen kaum mehr, kosten aber linear RAM.
     ));
     detailPool = createDetailPagePool(context, poolSize);
     log('  🏊 Detail-Page-Pool initialisiert (Soll-Größe ' + poolSize + ')', 'info');
-    // RAM-Diagnose: 4 Pool-Pages + 2 Stage-1-Pages ~ 600 MB peak. Wenn
-    // wir hier schon nahe am Limit sind, lieber Pool kleiner halten oder
-    // OOM-Profilbild zur Hand haben. Reines Logging, keine Aktion.
+    // RAM-Diagnose: ~120 MB/Pool-Page → 6 Pages + 2 Stage-1-Pages ~ 800 MB-1 GB
+    // peak. Wenn wir hier schon nahe am Limit sind, lieber Pool kleiner halten
+    // (detailScrapeConcurrency) oder OOM-Profilbild zur Hand haben. Nur Logging.
     try {
       const rss = process.memoryUsage().rss;
       log(`  📊 RSS at pool-init: ${(rss / 1024 / 1024).toFixed(0)} MB, pool-size ${poolSize}`, 'info');
@@ -1648,6 +1731,7 @@ async function runScrape(config, onLog, onPhase) {
     };
   } catch (err) {
     if (dwrCapture) try { dwrCapture.stop(); } catch (_) {}
+    if (notenDwrReqCapture) try { notenDwrReqCapture.stop(); } catch (_) {}
     if (absDwrCapture) try { absDwrCapture.stop(); } catch (_) {}
     if (absDwrReqCapture) try { absDwrReqCapture.stop(); } catch (_) {}
     // planPage best-effort cleanup — wenn schon null (success-path), no-op.
@@ -1668,6 +1752,7 @@ module.exports = {
   // Exposed for tests / ad-hoc usage
   parseDwrIdMap,
   parsePruefungen,
+  parseAnzahlPruefungen,
   parseAbsenzenOverview,
   parseAbsenzLektionen,
   parseTerminLangDatum,

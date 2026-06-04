@@ -15,7 +15,8 @@ const state = {
   timer: null,             // scheduled setTimeout handle (regulärer Scrape)
   weeklyTimer: null,       // setTimeout handle für wöchentlichen Detail-Refresh
   scrapeLockedUntil: 0,    // Timestamp (ms) bis wann manuelle Trigger gesperrt sind (Cooldown)
-  lastWeeklyDetailAt: null,// ISO string — letzter wöchentlicher Voll-Refresh
+  lastWeeklyDetailAt: null,// ISO string — letzter ERFOLGREICHER Weekly-Voll-Refresh
+  lastWeeklyDetailAttemptAt: null, // ISO string — letzter Weekly-VERSUCH (auch fehlgeschlagen), Backoff-Marker (#1)
   currentPhase: null,      // 'starting'|'browser'|'login'|'noten'|'stundenplan'|'saving'|null
   phaseStartedAt: null     // ISO timestamp — wann die aktuelle Phase begann
 };

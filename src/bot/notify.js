@@ -207,9 +207,10 @@ async function notifyRoomChanges(changes) {
 }
 
 /**
- * Wöchentlicher Detail-Refresh-Bericht — Push wird ausgelöst wenn der
- * samstägliche Full-Scrape neue ZP/LB-Einträge entdeckt hat, OHNE dass
- * sich die Modulnote geändert hätte (Edge-Case ZP=5.5 + LB=5.5).
+ * Detail-Refresh-Bericht — Push wird ausgelöst wenn der Voll-Detail-Scrape
+ * neue (benotete) ZP/LB-Einträge entdeckt hat, OHNE dass sich die Modulnote
+ * geändert hätte (Edge-Case ZP=5.5 + LB=5.5). Läuft beim täglichen Voll-
+ * Refresh (letzter Lauf des Tages) sowie beim Sa-Backstop.
  *
  * report: Array von { kuerzel_id, kuerzel_code, fach_name, semester, added: [...] }
  *   added = Array von { pruefung_typ, pruefung_nr, bezeichnung, gewicht, bewertung }
@@ -222,7 +223,7 @@ async function notifyWeeklyDetailReport(report) {
   const totalAdded = report.reduce((sum, r) => sum + (r.added ? r.added.length : 0), 0);
   if (!totalAdded) return;
 
-  let text = '🔍 <b>Wochen-Check</b>  <i>(' + totalAdded + ' neue Prüfung'
+  let text = '🔍 <b>Detail-Check</b>  <i>(' + totalAdded + ' neue Prüfung'
            + (totalAdded === 1 ? '' : 'en') + ')</i>\n\n';
   text += '<i>Diese ZP/LB sind seit dem letzten Check dazugekommen — die Modulnote selbst hat sich aber nicht geändert.</i>\n\n';
 
