@@ -50,6 +50,7 @@ const {
   getAbsenzen
 } = require('./absenzen');
 const { getStats, getAbsenzenStats, markSeen, dismissChanges } = require('./stats');
+const { resetDb } = require('./reset');
 const {
   addPushSubscription,
   removePushSubscription,
@@ -66,6 +67,7 @@ module.exports = {
   saveStundenplan,
   pruneVergangen,
   clearStundenplan,
+  resetDb,
   getNoten,
   getStundenplan,
   getHistory,

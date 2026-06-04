@@ -14,7 +14,8 @@
   import {
     getSettings,
     updateSettings,
-    clearStundenplan
+    clearStundenplan,
+    resetDb
   } from '$lib/api/endpoints';
   import { pushToast } from '$lib/stores/toast.svelte';
   import type {
@@ -32,6 +33,16 @@
   // cancels. Auto-revert is hostile and SR-invisible, so we keep state until
   // the user makes a decision.
   let dbResetState = $state<'idle' | 'confirming' | 'busy'>('idle');
+  let fullDbResetState = $state<'idle' | 'confirming' | 'busy'>('idle');
+  // Persistente Inline-Fehler pro Danger-Aktion. Ein Toast ist transient — bei
+  // einer destruktiven Aktion muss der Fehler an der Zeile stehen bleiben, bis
+  // der naechste Versuch laeuft (sonst bleibt unklar, ob die DB weg ist).
+  let dbResetError = $state<string | null>(null);
+  let fullDbResetError = $state<string | null>(null);
+  // Der volle Nuke braucht eine bewusste zweite Bestaetigung (Checkbox), damit
+  // er sich von der Zwei-Tap-Geste des leichten Resets unterscheidet — Reibung
+  // proportional zum Blast-Radius (loescht ALLE gescrapten Daten).
+  let fullDbResetArmed = $state(false);
 
   // Mirror "live" form values; bind:value writes through a setter helper that
   // updates `patch` only when the value actually differs from `current`.
@@ -57,6 +68,9 @@
   // Telegram section open state — opened on first hydrate if enabled or token
   // is set; otherwise stays closed. User can toggle freely afterward.
   let telegramOpen = $state(false);
+  // Erweitert nutzt dasselbe Collapse-Muster wie Telegram (eine Disclosure-
+  // Sprache statt nativem <details> + Chevron), Default zu.
+  let advancedOpen = $state(false);
 
   // Tracks ob Settings-View urspruenglich UI-Credentials erlaubte.
   const allowUiCreds = $derived(current?.allowUiCredentials !== false);
@@ -173,7 +187,7 @@
     if (saving || !current) return;
     const built = buildPatch();
     if (Object.keys(built).length === 0) {
-      pushToast('info', 'Keine Aenderungen.');
+      pushToast('info', 'Keine Änderungen.');
       return;
     }
     saving = true;
@@ -266,6 +280,7 @@
   async function onDbReset(): Promise<void> {
     if (dbResetState === 'busy') return;
     if (dbResetState === 'idle') {
+      dbResetError = null;
       dbResetState = 'confirming';
       return;
     }
@@ -274,12 +289,14 @@
       try {
         const res = await clearStundenplan();
         const n = typeof res.deleted === 'number' ? res.deleted : 0;
+        dbResetError = null;
         pushToast(
           'success',
-          `✓ Stundenplan zurueckgesetzt · ${n} Eintrag${n === 1 ? '' : 'e'} geloescht`
+          `✓ Stundenplan zurückgesetzt · ${n} Eintrag${n === 1 ? '' : 'e'} gelöscht`
         );
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'Unbekannter Fehler';
+        dbResetError = `Reset fehlgeschlagen: ${msg}`;
         pushToast('error', `Fehler: ${msg}`);
       } finally {
         dbResetState = 'idle';
@@ -289,6 +306,50 @@
 
   function cancelDbReset(): void {
     if (dbResetState === 'confirming') dbResetState = 'idle';
+  }
+
+  // ----- Voller DB-Reset (alle gescrapten Daten; Push-Abos + Settings bleiben) -----
+  // Gleiches 2-Stufen-Confirm-Muster wie der Stundenplan-Reset. Nach Erfolg ein
+  // 'wissen:scrape'-Event feuern, damit offene Views (Noten/Plan/Absenzen) leer
+  // nachladen, statt veraltete Daten zu zeigen.
+  async function onFullDbReset(): Promise<void> {
+    if (fullDbResetState === 'busy') return;
+    if (fullDbResetState === 'idle') {
+      fullDbResetError = null;
+      fullDbResetArmed = false;
+      fullDbResetState = 'confirming';
+      return;
+    }
+    if (fullDbResetState === 'confirming') {
+      // Safety-Gate: ohne gesetzte Checkbox passiert nichts (der Button ist
+      // ohnehin disabled, das hier ist die zweite Verteidigungslinie).
+      if (!fullDbResetArmed) return;
+      fullDbResetState = 'busy';
+      try {
+        const res = await resetDb();
+        const n = typeof res.total === 'number' ? res.total : 0;
+        fullDbResetError = null;
+        pushToast(
+          'success',
+          `✓ Datenbank zurückgesetzt · ${n} Zeile${n === 1 ? '' : 'n'} gelöscht · jetzt neu scrapen`
+        );
+        if (typeof window !== 'undefined') window.dispatchEvent(new Event('wissen:scrape'));
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Unbekannter Fehler';
+        fullDbResetError = `Reset fehlgeschlagen: ${msg}`;
+        pushToast('error', `Fehler: ${msg}`);
+      } finally {
+        fullDbResetState = 'idle';
+        fullDbResetArmed = false;
+      }
+    }
+  }
+
+  function cancelFullDbReset(): void {
+    if (fullDbResetState === 'confirming') {
+      fullDbResetState = 'idle';
+      fullDbResetArmed = false;
+    }
   }
 
   // ----- Mount -----
@@ -309,13 +370,13 @@
 </div>
 
 {#if loading}
-  <div class="loading mono">laedt...</div>
+  <div class="loading mono">lädt…</div>
 {:else if current}
   <!-- ============ Anmeldung ============ -->
   <section class="sec">
     <header class="sec__head">
       <h2 class="sec__title">Anmeldung</h2>
-      <span class="sec__hint">Microsoft-Konto, mit dem Tocco geoeffnet wird.</span>
+      <span class="sec__hint">Microsoft-Konto, mit dem Tocco geöffnet wird.</span>
     </header>
 
     <div class="rows">
@@ -330,7 +391,7 @@
           disabled={!allowUiCreds}
         />
         {#if !allowUiCreds}
-          <p class="hint">Wert nur via .env aenderbar.</p>
+          <p class="hint">Wert nur via .env änderbar.</p>
         {/if}
       </div>
 
@@ -340,11 +401,11 @@
           id="msPassword"
           type="password"
           autocomplete="new-password"
-          placeholder={current.passwordSet ? '••• (gesetzt, unveraendert)' : 'Passwort setzen'}
+          placeholder={current.passwordSet ? '••• (gesetzt, unverändert)' : 'Passwort setzen'}
           bind:value={formMsPassword}
           disabled={!allowUiCreds}
         />
-        <p class="hint">Wird nie zurueckgegeben, nur einmal speichern.</p>
+        <p class="hint">Wird nie zurückgegeben, nur einmal speichern.</p>
       </div>
 
       <div class="row">
@@ -358,7 +419,7 @@
           disabled={!allowUiCreds}
         />
         <p class="hint">
-          Primaerschluessel deines Tocco-Benutzers. Steht in der URL nach dem Login als ?key=... (Network-Tab).
+          Primärschlüssel deines Tocco-Benutzers. Steht in der URL nach dem Login als ?key=… (Network-Tab).
         </p>
       </div>
     </div>
@@ -398,7 +459,7 @@
           <label for="manualScrapeFullDetails">Manuell: alle Moduldetails</label>
           <p class="hint">
             Manueller Scrape zieht die Details aller Module neu, statt nur
-            geaenderter. Auto-Run bleibt unveraendert.
+            geänderter. Auto-Run bleibt unverändert.
           </p>
         </div>
         <button
@@ -523,7 +584,7 @@
               </div>
             {/each}
             <button type="button" class="time-add" onclick={addScheduleTime}>
-              + Uhrzeit hinzufuegen
+              + Uhrzeit hinzufügen
             </button>
           </div>
         </div>
@@ -593,14 +654,14 @@
             id="tgToken"
             type="password"
             autocomplete="off"
-            placeholder={current.telegramTokenSet ? '••• (gesetzt, unveraendert)' : '123456:ABC-DEF...'}
+            placeholder={current.telegramTokenSet ? '••• (gesetzt, unverändert)' : '123456:ABC-DEF...'}
             bind:value={formTelegramToken}
             disabled={!allowUiCreds}
           />
           <p class="hint">
             1. Bei @BotFather → /newbot → Anweisungen folgen.
             2. Token kopieren.
-            3. Hier einfuegen.
+            3. Hier einfügen.
           </p>
         </div>
 
@@ -621,13 +682,36 @@
 
   <!-- ============ Erweitert ============ -->
   <section class="sec">
-    <details class="adv">
-      <summary>
-        <h2 class="sec__title">Erweitert</h2>
-        <span class="sec__hint">Browser- und Server-Internas.</span>
-      </summary>
+    <button
+      type="button"
+      class="sec__head sec__head--clickable sec__head--btn"
+      aria-expanded={advancedOpen}
+      aria-controls="advanced-section"
+      onclick={() => (advancedOpen = !advancedOpen)}
+    >
+      <h2 class="sec__title">
+        <svg
+          class="sec__chevron"
+          class:sec__chevron--open={advancedOpen}
+          viewBox="0 0 24 24"
+          width="10"
+          height="10"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <polyline points="9 6 15 12 9 18" />
+        </svg>
+        Erweitert
+      </h2>
+      <span class="sec__hint">Browser- und Server-Internas.</span>
+    </button>
 
-      <div class="rows" style="margin-top:14px">
+    {#if advancedOpen}
+      <div id="advanced-section" class="rows">
         <div class="row">
           <label for="baseUrl">Base-URL</label>
           <input id="baseUrl" type="url" value={formBaseUrl} disabled />
@@ -637,7 +721,7 @@
         <div class="row">
           <label for="slowMo">slowMo (ms)</label>
           <input id="slowMo" type="number" min="0" max="2000" step="50" bind:value={formSlowMo} />
-          <p class="hint">Verzoegerung pro Browser-Aktion. 0 = aus.</p>
+          <p class="hint">Verzögerung pro Browser-Aktion. 0 = aus.</p>
         </div>
 
         <div class="row">
@@ -667,17 +751,18 @@
           </button>
         </div>
       </div>
-    </details>
+    {/if}
   </section>
 
   <!-- ============ Danger zone ============ -->
   <section class="sec sec--danger">
     <header class="sec__head">
       <h2 class="sec__title">Datenbank</h2>
-      <span class="sec__hint">Stundenplan kann beim naechsten Scrape neu geladen werden.</span>
+      <span class="sec__hint">Daten werden beim nächsten Scrape neu geladen. Push-Abos &amp; Einstellungen bleiben erhalten.</span>
     </header>
 
     <div class="rows">
+      <!-- Leichter Reset: nur Stundenplan. 2-Stufen-Confirm + Inline-Fehler. -->
       <div class="row">
         <div class="db-reset" aria-live="polite">
           <button
@@ -688,23 +773,60 @@
             onclick={() => void onDbReset()}
           >
             {#if dbResetState === 'idle'}
-              DB Stundenplan zuruecksetzen
+              Stundenplan zurücksetzen
             {:else if dbResetState === 'confirming'}
-              Wirklich? Klick erneut zum Bestaetigen
+              Wirklich löschen?
             {:else}
-              Loesche...
+              Lösche…
             {/if}
           </button>
           {#if dbResetState === 'confirming'}
-            <button
-              type="button"
-              class="btn-cancel"
-              onclick={cancelDbReset}
-            >
-              Abbrechen
-            </button>
+            <button type="button" class="btn-cancel" onclick={cancelDbReset}>Abbrechen</button>
           {/if}
         </div>
+        {#if dbResetError}
+          <p class="db-reset__error" role="alert">{dbResetError}</p>
+        {/if}
+      </div>
+
+      <!-- Schwerere Aktion: leert ALLE gescrapten Daten. Zusaetzliche Reibung —
+           der Confirm-Button bleibt disabled, bis die Checkbox bewusst gesetzt
+           wurde (Reibung proportional zum Blast-Radius). -->
+      <div class="row">
+        <div class="db-reset" aria-live="polite">
+          <button
+            type="button"
+            class="btn-danger btn-danger--nuke"
+            class:btn-danger--confirming={fullDbResetState === 'confirming'}
+            disabled={fullDbResetState === 'busy' ||
+              (fullDbResetState === 'confirming' && !fullDbResetArmed)}
+            onclick={() => void onFullDbReset()}
+          >
+            {#if fullDbResetState === 'idle'}
+              🧨 Gesamte Datenbank zurücksetzen
+            {:else if fullDbResetState === 'confirming'}
+              Endgültig löschen
+            {:else}
+              Lösche alles…
+            {/if}
+          </button>
+          {#if fullDbResetState === 'confirming'}
+            <button type="button" class="btn-cancel" onclick={cancelFullDbReset}>Abbrechen</button>
+          {/if}
+        </div>
+        {#if fullDbResetState === 'confirming'}
+          <label class="nuke-confirm">
+            <input type="checkbox" bind:checked={fullDbResetArmed} />
+            <span>Ja, Noten, Prüfungen, Stundenplan &amp; Absenzen unwiderruflich löschen.</span>
+          </label>
+        {:else}
+          <span class="db-reset__note">
+            Löscht alle gescrapten Daten. Push-Abos &amp; Einstellungen bleiben. Danach einmal scrapen.
+          </span>
+        {/if}
+        {#if fullDbResetError}
+          <p class="db-reset__error" role="alert">{fullDbResetError}</p>
+        {/if}
       </div>
     </div>
   </section>
@@ -719,7 +841,7 @@
       aria-busy={saving}
       onclick={() => void save()}
     >
-      {saving ? 'Speichere...' : 'Speichern'}
+      {saving ? 'Speichere…' : 'Speichern'}
     </button>
   </div>
 {/if}
@@ -756,10 +878,11 @@
   .sec__chevron {
     color: var(--text-dim);
     flex-shrink: 0;
-    transition: transform var(--t-fast) var(--ease);
+    /* ease-expo (statt --ease) fuer einen snappigeren, bewussteren Reveal. */
+    transition: transform var(--t-fast) var(--ease-expo);
   }
   .sec__chevron--open { transform: rotate(90deg); }
-  .sec__hint { font-size: 12px; color: var(--text-dim); }
+  .sec__hint { font-size: 12px; color: var(--text-dim); max-width: 60ch; }
 
   /* ===== Rows ===== */
   .rows { display: flex; flex-direction: column; gap: 14px; }
@@ -804,7 +927,7 @@
     box-shadow: 0 0 0 3px var(--accent-soft);
   }
   .row input:disabled { opacity: 0.6; cursor: not-allowed; }
-  .hint { color: var(--text-dim); font-size: 12px; margin: 2px 0 0 0; line-height: 1.5; }
+  .hint { color: var(--text-dim); font-size: 12px; margin: 2px 0 0 0; line-height: 1.5; max-width: 64ch; }
 
   /* ===== Toggle ===== */
   .toggle { display: inline-flex; align-items: center; background: none; border: none; padding: 4px; cursor: pointer; flex-shrink: 0; border-radius: 999px; }
@@ -885,31 +1008,50 @@
     .time-add:hover { color: var(--accent); border-color: var(--accent-border); }
   }
 
-  /* ===== Erweitert (details) ===== */
-  .adv { padding: 0; }
-  .adv summary {
-    cursor: pointer; user-select: none; list-style: none;
-    display: flex; align-items: baseline; gap: 12px; padding: 0;
-  }
-  .adv summary::-webkit-details-marker { display: none; }
-  .adv summary::before { content: '▸ '; color: var(--text-dim); font-size: 12px; }
-  .adv[open] summary::before { content: '▾ '; }
-
   /* ===== Danger ===== */
   .sec--danger { border-bottom: none; }
-  .db-reset { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .db-reset { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .btn-danger {
     background: var(--surface-2); color: var(--danger);
-    border: 1px solid var(--border); border-radius: var(--r-md);
+    /* Danger-Identitaet schon im Ruhezustand ueber einen ZARTEN getoenten Rahmen
+       (statt knallrotem Fill) — restraint. */
+    border: 1px solid var(--danger-border); border-radius: var(--r-md);
     padding: 8px 14px; font-size: 13px; font-weight: 600;
     cursor: pointer; align-self: flex-start;
-    transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+    /* transform in der Transition fuer Press-Feedback (Emil). Nie `all`. */
+    transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease),
+                transform var(--t-fast) var(--ease);
   }
   @media (hover: hover) and (pointer: fine) {
-    .btn-danger:hover { background: var(--surface-3); }
+    .btn-danger:hover { background: var(--danger-soft); border-color: var(--danger-border-strong); }
   }
-  .btn-danger--confirming { background: var(--danger); color: var(--accent-ink); border-color: var(--danger); }
+  .btn-danger:active { transform: scale(0.97); }
   .btn-danger:disabled { opacity: 0.6; cursor: not-allowed; }
+  /* "Nuke" = die schwerere Aktion (alles loeschen): staerkerer Danger-Rahmen im
+     Ruhezustand, damit sie sich vom leichteren Stundenplan-Reset abhebt. */
+  .btn-danger--nuke { border-color: var(--danger-border-strong); }
+  /* Confirm = solider Danger-Fill ("ein Klick vom Loeschen"). Kurzer Text haelt
+     den Button kompakt statt ihn zum Balken aufzublasen. :hover hier explizit
+     solide, damit der normale Hover-Tint nicht gewinnt. */
+  .btn-danger--confirming,
+  .btn-danger--confirming:hover {
+    background: var(--danger); color: var(--accent-ink); border-color: var(--danger);
+  }
+  .db-reset__note { font-size: 12px; color: var(--text-dim); max-width: 64ch; line-height: 1.5; }
+  /* Persistenter Inline-Fehler an der Danger-Zeile (bleibt bis zum naechsten
+     Versuch stehen, anders als der transiente Toast). */
+  .db-reset__error {
+    font-size: 12px; color: var(--danger); font-weight: 500;
+    margin: 0; max-width: 64ch; line-height: 1.5;
+  }
+  /* Nuke-Bestaetigung: bewusste Checkbox, die den Confirm-Button erst scharf
+     stellt — Reibung proportional zum Blast-Radius, voll tastatur-/SR-faehig. */
+  .nuke-confirm {
+    display: flex; align-items: flex-start; gap: 8px;
+    font-size: 12px; color: var(--text-mute); line-height: 1.45;
+    max-width: 64ch; cursor: pointer; user-select: none;
+  }
+  .nuke-confirm input { accent-color: var(--danger); margin: 1px 0 0 0; flex-shrink: 0; cursor: pointer; }
   .btn-cancel {
     background: transparent; color: var(--text-mute);
     border: 1px solid var(--border-soft); border-radius: var(--r-md);
@@ -926,10 +1068,20 @@
    * long forms. z-index stays low (10) so app-level Topbar/overlays win. */
   .save-bar {
     display: flex; align-items: center; justify-content: flex-end;
-    gap: 14px; padding: 14px 0;
-    border-top: 1px solid var(--border); margin-top: 8px;
+    gap: 14px; margin-top: 8px;
+    border-top: 1px solid var(--border);
     position: sticky; bottom: 0; z-index: 10;
     background: var(--surface);
+    /* Full-Bleed bis an die .main-Kanten (Rail links, Scrollbar rechts).
+       .main__inner ist auf 1600px begrenzt + zentriert (margin:0 auto). Die
+       Save-Bar als sticky Kind erbt diese Breite und reicht sonst NICHT bis zum
+       Side-Menu — auf breiten Screens bleibt der Zentrier-Gutter sichtbar. Der
+       Breakout zieht Hintergrund + Top-Border an die .main-Kanten; das
+       Gegen-Padding haelt Hinweis + Button buendig mit den Formularfeldern.
+       --rail-w ist mobil bereits 0px → eine Formel deckt Desktop UND Mobile.
+       .main hat overflow-x:clip, das den Bleed pixelgenau abschneidet. */
+    margin-inline: calc(50% - 50vw + var(--rail-w) / 2);
+    padding: 14px calc(50vw - 50% - var(--rail-w) / 2);
   }
   .save-bar__hint { margin-right: auto; font-size: 12px; color: var(--text-dim); letter-spacing: 0.04em; }
   .btn-save {
@@ -938,9 +1090,8 @@
     font-weight: 600; letter-spacing: 0.02em; cursor: pointer;
     transition: transform var(--t-fast) var(--ease), opacity var(--t-fast) var(--ease);
   }
-  @media (hover: hover) and (pointer: fine) {
-    .btn-save:hover:not(:disabled) { transform: translateY(-1px); }
-  }
+  /* Press-down only (scale 0.97). Kein hover-Lift — der war marketing-haft und
+     out-of-register fuer diese zurueckhaltende Produkt-Oberflaeche. */
   .btn-save:active:not(:disabled) { transform: scale(0.97); }
   .btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
 
@@ -950,7 +1101,6 @@
     .sec__chevron {
       transition: none;
     }
-    .btn-save:hover:not(:disabled),
     .btn-save:active:not(:disabled) { transform: none; }
   }
 </style>

@@ -141,6 +141,10 @@ export interface NotenRow {
 	prev_note: number | null;
 	/** ISO-Zeit wann der jetzige note-Wert erfasst wurde. */
 	note_recorded_at: string | null;
+	/** Anzahl erfasster Prüfungen (ZP/LB) dieses Moduls. */
+	pruefungen_total: number;
+	/** Davon noch OFFEN (unbenotet, bewertung IS NULL). */
+	pruefungen_open: number;
 }
 
 export type NotenSortBy = 'note' | 'fetched' | 'fach';
@@ -253,6 +257,14 @@ export interface StundenplanResponse {
 /** POST /api/stundenplan/clear */
 export interface StundenplanClearResponse {
 	deleted: number;
+}
+
+/** POST /api/db/reset — löscht ALLE gescrapten Daten (Push-Abos bleiben). */
+export interface DbResetResponse {
+	/** Gelöschte Zeilen pro Tabelle. */
+	deleted: Record<string, number>;
+	/** Summe über alle Tabellen. */
+	total: number;
 }
 
 // ---------- Absenzen ----------
