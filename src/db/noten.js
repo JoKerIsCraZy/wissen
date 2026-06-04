@@ -40,7 +40,11 @@ function stmts(db) {
       'UPDATE noten SET change_pending = 1, change_seen_at = NULL WHERE kuerzel_id = ?'
     ),
     updateDetailId: db.prepare(
-      'UPDATE noten SET detail_id = ? WHERE kuerzel_id = ? AND (detail_id IS NULL OR detail_id != ?)'
+      // Bei ID-Wechsel auch detail_scraped_at zurücksetzen (#11): eine alte/
+      // falsche detail_id hat ihre Prüfungen von der falschen Detailseite
+      // gezogen → beim nächsten Cycle ohne Cooldown neu scrapen (Self-Healing,
+      // spiegelt absenzen.updateDetailId). Greift nur bei echtem ID-Wechsel.
+      'UPDATE noten SET detail_id = ?, detail_scraped_at = NULL WHERE kuerzel_id = ? AND (detail_id IS NULL OR detail_id != ?)'
     ),
     markDetailScraped: db.prepare(
       'UPDATE noten SET detail_scraped_at = CURRENT_TIMESTAMP WHERE kuerzel_id = ?'
@@ -59,8 +63,7 @@ function stmts(db) {
     getKuerzelnWithDetailId: db.prepare(`
       SELECT kuerzel_id, detail_id, fach_name, semester, kuerzel_code
       FROM noten
-      WHERE note IS NOT NULL
-        AND detail_id IS NOT NULL
+      WHERE detail_id IS NOT NULL
         AND detail_id != ''
       ORDER BY kuerzel_id
     `)
@@ -195,7 +198,18 @@ function getNoten(db, filters = {}) {
              WHERE h.kuerzel_id = n.kuerzel_id
              ORDER BY h.recorded_at DESC
              LIMIT 1
-           ) AS note_recorded_at
+           ) AS note_recorded_at,
+           -- Prüfungs-Fortschritt pro Modul: wie viele ZP/LB erfasst sind und
+           -- wie viele davon noch OFFEN (unbenotet, bewertung IS NULL) sind.
+           -- Treibt die "X offen"-Anzeige im Frontend (pro Modul + Summe).
+           (
+             SELECT COUNT(*) FROM noten_pruefungen p
+             WHERE p.kuerzel_id = n.kuerzel_id
+           ) AS pruefungen_total,
+           (
+             SELECT COUNT(*) FROM noten_pruefungen p
+             WHERE p.kuerzel_id = n.kuerzel_id AND p.bewertung IS NULL
+           ) AS pruefungen_open
     FROM noten n
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
     ORDER BY ${orderBy}
@@ -227,10 +241,13 @@ function updateDetailIds(db, kuerzelToDetail) {
   return changed;
 }
 
-// Liefert ALLE benoteten Module mit detail_id — ignoriert Cooldown UND
-// "haben pruefungen" Filter. Wird vom wöchentlichen Detail-Refresh genutzt,
-// um auch Module mit bereits vorhandenen Prüfungen erneut zu prüfen
-// (Edge-Case: ZP=5.5 + LB=5.5 → Modulnote unverändert, aber LB ist neu).
+// Liefert ALLE Module mit detail_id — ignoriert Cooldown UND "haben
+// pruefungen" Filter UND verlangt KEINE Modulnote. Wird vom Voll-Detail-
+// Refresh genutzt (täglicher Lauf am Tagesende + Sa-Backstop), um
+//  (a) Module mit bereits vorhandenen Prüfungen erneut zu prüfen
+//      (Edge-Case: ZP=5.5 + LB=5.5 → Modulnote unverändert, aber LB ist neu),
+//  (b) Module OHNE Modulnote (note IS NULL) abzudecken — diese haben oft schon
+//      einzelne LB/ZP, die sonst nie gescrapt würden (Backfill verlangt note).
 function getKuerzelnWithDetailId(db) {
   const s = stmts(db);
   return s.getKuerzelnWithDetailId.all() || [];
@@ -245,7 +262,12 @@ const DETAIL_BACKFILL_COOLDOWN_MS = 12 * 60 * 60 * 1000;
 // Liefert Module die einen Detail-Scrape brauchen:
 //  - haben eine Note (note IS NOT NULL)
 //  - haben eine detail_id (sonst können wir nicht navigieren)
-//  - haben noch KEINE Einträge in noten_pruefungen (Backfill)
+//  - haben noch KEINE BENOTETE Prüfung (bewertung IS NOT NULL) — Backfill.
+//    Wichtig: der Filter prüft auf eine benotete Prüfung, NICHT bloss auf
+//    "irgendeine Zeile". Sonst würde eine rein leere/unbenotete LB-Zeile (die
+//    seit der Leer-LB-Erfassung persistiert wird) das Modul fälschlich aus der
+//    Backfill-Rotation kicken, sodass die spätere null→Wert-Benotung erst beim
+//    nächsten Voll-Refresh statt zeitnah erkannt würde (Audit-Fund #4).
 //  - wurden noch nie ODER vor > Cooldown gescrapt (verhindert Endlos-Retry
 //    bei Modulen, deren Detail-Page wirklich leer ist)
 // Ergänzt durch explizite Liste von kuerzelIds (z.B. aus gradeChanges) — diese
@@ -261,7 +283,8 @@ function getKuerzelnNeedingDetailScrape(db, additionalKuerzelIds = []) {
       AND (n.detail_scraped_at IS NULL
            OR n.detail_scraped_at < datetime('now', ?))
       AND NOT EXISTS (
-        SELECT 1 FROM noten_pruefungen p WHERE p.kuerzel_id = n.kuerzel_id
+        SELECT 1 FROM noten_pruefungen p
+        WHERE p.kuerzel_id = n.kuerzel_id AND p.bewertung IS NOT NULL
       )
   `).all('-' + Math.round(DETAIL_BACKFILL_COOLDOWN_MS / 1000) + ' seconds') || [];
 

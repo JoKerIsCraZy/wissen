@@ -452,6 +452,37 @@ function notifyPruefungenChanges(report, database) {
   }, database);
 }
 
+// Web-Push für den Detail-Check-Report: NEUE ZP/LB die KEIN gradeChange-Push
+// abdeckt (Modulnote unverändert). Läuft beim täglichen Voll-Refresh (letzter
+// Lauf) + Sa-Backstop. Spiegelt notifyPruefungenChanges, aber für `added`
+// (neue Prüfungen) statt `changed`. Bisher nur Telegram → jetzt auch Web-Push (#12).
+function notifyWeeklyDetailReport(report, database) {
+  if (!Array.isArray(report) || !report.length) return Promise.resolve(null);
+  const totalAdded = report.reduce((s, m) => s + (m.added ? m.added.length : 0), 0);
+  if (!totalAdded) return Promise.resolve(null);
+
+  if (report.length <= 3) {
+    const tasks = report.map((m) => {
+      const subj = m.fach_name || m.kuerzel_code || 'Modul';
+      const n = m.added ? m.added.length : 0;
+      const title = '🔍 Neue Prüfung: ' + subj;
+      const body = capBody(n + ' neue ZP/LB · Modulnote unverändert');
+      return sendToAll({
+        title, body,
+        url: '/mobile/#/modul/' + encodeURIComponent(m.kuerzel_id) + '?code=' + encodeURIComponent(m.kuerzel_code || ''),
+        tag: 'weekly-' + m.kuerzel_id
+      }, database);
+    });
+    return Promise.allSettled(tasks);
+  }
+  return sendToAll({
+    title: '🔍 Neue Prüfungen',
+    body: capBody(totalAdded + ' neue ZP/LB in ' + report.length + ' Modulen'),
+    url: '/mobile/#/noten',
+    tag: 'weekly-summary'
+  }, database);
+}
+
 // Anzeige-Wort einer Absenz-Kategorie für die Push-Texte. "Abwesend X%" zeigt
 // den echten Roh-Wortlaut (status_raw), sonst die feste Kategorie-Bezeichnung.
 function absenzKategorieLabel(lek) {
@@ -593,6 +624,7 @@ module.exports = {
   notifyGradeChanges,
   notifyRoomChanges,
   notifyPruefungenChanges,
+  notifyWeeklyDetailReport,
   notifyNeueAbsenzen,
   // nur für Tests — direkt das interne Recording triggern, damit der Counter
   // ohne Mock von web-push.sendNotification verifiziert werden kann.

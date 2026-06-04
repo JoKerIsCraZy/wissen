@@ -301,6 +301,10 @@ function saveLektionen(db, kuerzelCode, entries) {
     for (const r of (s.getExistingTermine.all(code) || [])) {
       beforeMap.set(`${r.termin_iso}#${r.zeit_von}`, { status: r.status });
     }
+    // Cold-Start (#2): keine prev-Lektionen → dieses Modul wird in diesem Lauf
+    // ERSTBEFÜLLT. Der Caller (runScrapeCycle) nutzt das, um beim Voll-Refresh
+    // KEINEN Massen-Push historischer Absenzen einer Neuinstallation auszulösen.
+    stats.coldStart = beforeMap.size === 0;
 
     for (const e of entries) {
       const terminIso = e.termin_iso != null ? String(e.termin_iso) : null;

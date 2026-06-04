@@ -483,12 +483,12 @@ async function screenStatus() {
          + '</b>\n';
     text += '· Auto-Run: <b>' + (s.enabled ? `ein (${s.intervalMinutes} Min)` : 'aus') + '</b>\n';
 
-    // Wochen-Refresh
-    text += '\n<b>Wochen-Check</b>  <i>(Sa 03:00)</i>\n';
-    text += '· Letzter: <b>'
+    // Voll-Detail-Refresh: täglich am letzten Lauf des Tages + Sa-03:00-Backstop
+    text += '\n<b>Detail-Check</b>  <i>(täglich, letzter Lauf · Sa 03:00 Backstop)</i>\n';
+    text += '· Letzter Backstop: <b>'
          + escapeHtml(s.lastWeeklyDetailAt ? formatDateTime(s.lastWeeklyDetailAt) : 'noch nie')
          + '</b>\n';
-    text += '· Nächster: <b>'
+    text += '· Nächster Backstop: <b>'
          + escapeHtml(s.nextWeeklyRun ? formatDateTime(s.nextWeeklyRun) : '–')
          + '</b>\n';
 

@@ -11,6 +11,10 @@ const { DATA_DIR } = require('./auth');
 const WEEKLY_DETAIL_DAY = 6;       // 0=So, 1=Mo, ..., 6=Sa
 const WEEKLY_DETAIL_HOUR = 3;      // 03:00
 const WEEKLY_DETAIL_FILE = path.join(DATA_DIR, '.weekly-detail-at');
+// Backoff bei wiederholt fehlschlagendem Weekly-Lauf (#1): war der letzte
+// VERSUCH (nicht Erfolg) erst kürzlich, nicht in 90s erneut feuern, sondern mit
+// Abstand — sonst loopt der teuerste Scrape bei Dauerfehler alle 90s.
+const WEEKLY_RETRY_BACKOFF_MS = 4 * 60 * 60 * 1000; // 4h
 
 function hmToMinutes(hm) {
   const [h, m] = String(hm || '').split(':').map(n => parseInt(n, 10));
@@ -162,8 +166,17 @@ function init({ state, settings, logger, runScrapeCycle }) {
     const lastMs = state.lastWeeklyDetailAt ? Date.parse(state.lastWeeklyDetailAt) : NaN;
     const overdue = !Number.isFinite(lastMs) || (now - lastMs) > 7 * 24 * 3600 * 1000;
     if (overdue) {
-      next = new Date(now + 90 * 1000);
-      logger.log('🗓️  Wochen-Check überfällig — triggert in 90s', 'info');
+      // Backoff gegen Endlos-Retry (#1): hat der letzte VERSUCH erst kürzlich
+      // stattgefunden (Weekly-Lauf schlug fehl → lastWeeklyDetailAt blieb
+      // überfällig), nicht in 90s erneut feuern, sondern mit Abstand.
+      const attemptMs = state.lastWeeklyDetailAttemptAt ? Date.parse(state.lastWeeklyDetailAttemptAt) : NaN;
+      const recentAttempt = Number.isFinite(attemptMs) && (now - attemptMs) < WEEKLY_RETRY_BACKOFF_MS;
+      const delayMs = recentAttempt ? WEEKLY_RETRY_BACKOFF_MS : 90 * 1000;
+      next = new Date(now + delayMs);
+      logger.log('🗓️  Wochen-Check überfällig — '
+        + (recentAttempt
+          ? 'Backoff ' + Math.round(WEEKLY_RETRY_BACKOFF_MS / 3600000) + 'h (letzter Versuch schlug fehl)'
+          : 'triggert in 90s'), 'info');
     } else {
       next = nextWeeklyDetailRun();
     }

@@ -14,8 +14,15 @@ ON CONFLICT(kuerzel_id, pruefung_typ, pruefung_nr) DO UPDATE SET
   gewicht_pct   = :gewicht_pct,
   bewertung     = :bewertung,
   bewertung_raw = :bewertung_raw,
-  fetched_at    = CURRENT_TIMESTAMP
+  fetched_at    = CURRENT_TIMESTAMP,
+  missing_streak = 0
 `;
+
+// Lösch-Schutz (#6): eine im Detail-Scrape fehlende Prüfung wird nur dann
+// gelöscht, wenn die Seite beweisbar vollständig war (gescrapte Anzahl >=
+// "Anzahl Prüfungen: N") ODER sie an so vielen Checks IN FOLGE fehlte. So
+// überlebt eine valide Note ein einmaliges Halb-Laden der Tocco-Detailseite.
+const MISSING_STREAK_THRESHOLD = 2;
 
 // Per-db-Handle Prepared-Statement-Cache. Gleiches Pattern wie in noten.js /
 // stundenplan.js. markFresh wird ebenfalls vorbereitet, weil savePruefungen
@@ -27,8 +34,12 @@ function stmts(db) {
     db,
     upsert: db.prepare(UPSERT_PRUEF_SQL),
     getExisting: db.prepare(
-      'SELECT pruefung_typ, pruefung_nr, bewertung, bewertung_raw '
+      'SELECT pruefung_typ, pruefung_nr, bewertung, bewertung_raw, missing_streak '
       + 'FROM noten_pruefungen WHERE kuerzel_id = ?'
+    ),
+    bumpStreak: db.prepare(
+      'UPDATE noten_pruefungen SET missing_streak = ? '
+      + 'WHERE kuerzel_id = ? AND pruefung_typ = ? AND pruefung_nr = ?'
     ),
     insertHist: db.prepare(
       'INSERT INTO pruefungen_history '
@@ -89,11 +100,13 @@ function stmts(db) {
 //   changedEntries = Bewertung einer bestehenden Prüfung hat sich geändert.
 //                    Enthält prev_bewertung + new_bewertung. Liefert die
 //                    Push-Diff-Quelle für "ZP von 4.0 → 4.5".
-function savePruefungen(db, kuerzelId, entries) {
+function savePruefungen(db, kuerzelId, entries, opts = {}) {
   if (!kuerzelId) {
     return { inserted: 0, updated: 0, deleted: 0, addedEntries: [], changedEntries: [] };
   }
   if (!Array.isArray(entries) || !entries.length) {
+    // Empty-Input NO-OP: ein komplett fehlgeschlagener/leerer Scrape darf NIE
+    // löschen (kein Vertrauen in die Absenz). Bestehende Daten bleiben.
     return { inserted: 0, updated: 0, deleted: 0, addedEntries: [], changedEntries: [] };
   }
 
@@ -113,7 +126,8 @@ function savePruefungen(db, kuerzelId, entries) {
     for (const r of (s.getExisting.all(String(kuerzelId)) || [])) {
       beforeMap.set(`${r.pruefung_typ}#${r.pruefung_nr}`, {
         bewertung: r.bewertung,
-        bewertung_raw: r.bewertung_raw
+        bewertung_raw: r.bewertung_raw,
+        missing_streak: r.missing_streak || 0
       });
     }
 
@@ -142,20 +156,27 @@ function savePruefungen(db, kuerzelId, entries) {
 
       if (!prev) {
         stats.inserted++;
-        stats.addedEntries.push({
-          pruefung_typ: cls.typ,
-          pruefung_nr:  cls.nr,
-          bezeichnung:  row.bezeichnung,
-          gewicht:      row.gewicht,
-          gewicht_pct:  row.gewicht_pct,
-          bewertung:    row.bewertung
-        });
-        // Snapshot für künftige Diffs — auch wenn bewertung null ist (Modul
-        // ist neu, Prüfung steht aber schon ohne Note in Tocco).
-        s.insertHist.run(
-          row.kuerzel_id, row.pruefung_typ, row.pruefung_nr,
-          row.bezeichnung, row.bewertung, row.bewertung_raw
-        );
+        // Eine NEU aufgetauchte, aber noch UNBENOTETE Prüfung (leere LB) wird
+        // gespeichert (damit sie in der UI als "—" erscheint), aber NICHT als
+        // push-/feed-würdiges addedEntry gewertet und löst kein markFresh aus —
+        // eine leere Note ist keine Neuigkeit. Sobald sie später eine Bewertung
+        // bekommt (NULL → Wert), greift der changedEntries-Pfad unten und
+        // erzeugt korrekt einen Push ("LB 4: —→4.7").
+        if (row.bewertung != null) {
+          stats.addedEntries.push({
+            pruefung_typ: cls.typ,
+            pruefung_nr:  cls.nr,
+            bezeichnung:  row.bezeichnung,
+            gewicht:      row.gewicht,
+            gewicht_pct:  row.gewicht_pct,
+            bewertung:    row.bewertung
+          });
+          // Snapshot für künftige Diffs (nur für benotete Erst-Einträge).
+          s.insertHist.run(
+            row.kuerzel_id, row.pruefung_typ, row.pruefung_nr,
+            row.bezeichnung, row.bewertung, row.bewertung_raw
+          );
+        }
       } else {
         stats.updated++;
         const bewertungChanged = prev.bewertung !== row.bewertung;
@@ -180,12 +201,44 @@ function savePruefungen(db, kuerzelId, entries) {
       }
     }
 
-    // Entries die früher da waren aber nicht mehr → löschen
+    // ---- Lösch-Schutz gegen Teil-Scrapes (#6) ----
+    // expectedCount = "Anzahl Prüfungen: N" von der Detailseite (via opts).
+    // scrapedCount  = Anzahl distinkter, in DIESEM Scrape gesehener Prüfungen.
+    //   complete   → Seite beweisbar vollständig → fehlende Prüfung ist wirklich
+    //                weg → sofort löschen (echte Lehrer-Löschung).
+    //   incomplete → Teil-Scrape (Seite halb geladen) → Absenz NICHT vertrauen,
+    //                NICHTS anfassen (kein Löschen, kein Strike).
+    //   unbekannt  → 2-Strike: erst nach MISSING_STREAK_THRESHOLD Checks in
+    //                Folge löschen, sonst Streak hochzählen und behalten.
+    const expectedCount = (opts && Number.isFinite(opts.expectedCount) && opts.expectedCount > 0)
+      ? opts.expectedCount : null;
+    const scrapedCount = seen.size;
+    const complete   = expectedCount != null && scrapedCount >= expectedCount;
+    const incomplete = expectedCount != null && scrapedCount < expectedCount;
+    stats.expectedCount = expectedCount;
+    stats.scrapedCount = scrapedCount;
+    stats.incomplete = incomplete;
+
     for (const key of beforeMap.keys()) {
-      if (seen.has(key)) continue;
+      if (seen.has(key)) continue; // in diesem Scrape vorhanden → bleibt (Streak via UPSERT auf 0)
       const [typ, nr] = key.split('#');
-      s.del.run(String(kuerzelId), typ, parseInt(nr, 10));
-      stats.deleted++;
+      const nrInt = parseInt(nr, 10);
+      if (complete) {
+        s.del.run(String(kuerzelId), typ, nrInt);
+        stats.deleted++;
+      } else if (incomplete) {
+        stats.protected = (stats.protected || 0) + 1; // Teil-Scrape → geschützt
+      } else {
+        const prevStreak = (beforeMap.get(key) && beforeMap.get(key).missing_streak) || 0;
+        const newStreak = prevStreak + 1;
+        if (newStreak >= MISSING_STREAK_THRESHOLD) {
+          s.del.run(String(kuerzelId), typ, nrInt);
+          stats.deleted++;
+        } else {
+          s.bumpStreak.run(newStreak, String(kuerzelId), typ, nrInt);
+          stats.deferredDelete = (stats.deferredDelete || 0) + 1;
+        }
+      }
     }
 
     // Markiert das Modul als "frisch" wenn sich eine ZP/LB-Bewertung geändert
