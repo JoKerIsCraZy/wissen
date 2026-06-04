@@ -664,6 +664,21 @@
     return last;
   }
 
+  /* Modul-Anzeigename mit ausgeschriebenem Semester für Niveau-/Sprachmodule
+   * (Englisch, Mathematik … — nicht-numerische Modul-Nr wie ENG-N3, MAT). Diese
+   * wiederholen sich über mehrere Semester mit identischem fach_name; das
+   * Semester im Namen macht sie unterscheidbar. Numerische Module (z.B. 254)
+   * sind pro Semester eindeutig und bleiben unverändert. */
+  function moduleNameWithSemester(row: NotenRow): string {
+    const name = row.fach_name || row.fach_code || row.kuerzel_full || '—';
+    const code = shortModuleCode(row);
+    if (row.semester && /[A-Za-z]/.test(code)) {
+      const m = String(row.semester).match(/(\d+)/);
+      if (m) return `${name} · Semester ${m[1]}`;
+    }
+    return name;
+  }
+
   /* Card "headline". Three states: aktuell läuft / heute kommt noch / heute fertig. */
   const cardLabel = $derived(
     currentEvent
@@ -786,14 +801,14 @@
             type="button"
             class="grades-strip__last"
             onclick={() => openNote(lastAddedNote)}
-            aria-label="Zur letzten Note: {shortModuleCode(lastAddedNote)} {lastAddedNote.fach_name}"
+            aria-label="Zur letzten Note: {shortModuleCode(lastAddedNote)} {moduleNameWithSemester(lastAddedNote)}"
           >
             <span class="grades-strip__last-label">Letzte Note</span>
             <span class="grades-strip__last-code mono">
               {shortModuleCode(lastAddedNote)}
             </span>
             <span class="grades-strip__last-name">
-              {lastAddedNote.fach_name || '—'}
+              {moduleNameWithSemester(lastAddedNote)}
             </span>
             <span
               class="grades-strip__last-grade mono"
@@ -964,7 +979,7 @@
                       <span class="panel-change__icon panel-change__icon--note-change" aria-hidden="true">✎</span>
                       <span class="panel-change__body">
                         <span class="panel-change__title">
-                          {modNum ? modNum + ' - ' : ''}{c.row.fach_name}: <span class="panel-change__diff mono">
+                          {modNum ? modNum + ' - ' : ''}{moduleNameWithSemester(c.row)}: <span class="panel-change__diff mono">
                             <span style:color={gradeColor(c.row.prev_note)}>{c.row.prev_note != null ? c.row.prev_note.toFixed(2) : '—'}</span>
                             <span class="panel-change__arrow" aria-hidden="true">→</span>
                             <span style:color={gradeColor(c.row.note)}>{c.row.note != null ? c.row.note.toFixed(2) : '—'}</span>
@@ -980,7 +995,7 @@
                       <span class="panel-change__icon panel-change__icon--note-new" aria-hidden="true">＋</span>
                       <span class="panel-change__body">
                         <span class="panel-change__title">
-                          {modNum ? modNum + ' - ' : ''}{c.row.fach_name}: <span class="panel-change__diff mono"
+                          {modNum ? modNum + ' - ' : ''}{moduleNameWithSemester(c.row)}: <span class="panel-change__diff mono"
                             style:color={gradeColor(c.row.note)}>Neue Note {c.row.note != null ? c.row.note.toFixed(2) : (c.row.note_raw || '—')}</span>
                         </span>
                         <span class="panel-change__sub mono">
