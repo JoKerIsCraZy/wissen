@@ -49,7 +49,20 @@ export function fmtRelative(tsIso: string | null | undefined): string {
 }
 
 export function moduleName(r: NotenRow): string {
-  return r.fach_name || r.fach_code || r.kuerzel_full || '—';
+  const name = r.fach_name || r.fach_code || r.kuerzel_full || '—';
+  // Niveau-/Sprachmodule (Englisch "ENG-N3", Mathematik "MAT" …) wiederholen
+  // sich über mehrere Semester mit identischem fach_name. Das ausgeschriebene
+  // Semester macht sie im Modul-Namen unterscheidbar. Bedingung: die Modul-Nr
+  // (moduleCode) enthält einen Buchstaben → Niveau-/Sprachmodul. Rein
+  // numerische Module (z.B. "254") sind pro Semester eindeutig und bleiben
+  // unverändert. Sort/Suche laufen über separate Keys (_nameSortLc/_nameLc),
+  // sind also vom Anzeige-Suffix nicht betroffen.
+  const code = moduleCode(r);
+  if (r.semester && /[A-Za-z]/.test(code)) {
+    const m = String(r.semester).match(/(\d+)/);
+    if (m) return `${name} · Semester ${m[1]}`;
+  }
+  return name;
 }
 
 export function moduleCode(r: NotenRow): string {
