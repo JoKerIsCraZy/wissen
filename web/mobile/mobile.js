@@ -180,7 +180,16 @@ function modulNummerOf(kuerzel_code) {
 }
 function buildTitle(kuerzel_code, fach_name) {
   const num = modulNummerOf(kuerzel_code);
-  return num ? num + ' — ' + (fach_name || 'Modul') : (fach_name || 'Modul');
+  const base = num ? num + ' — ' + (fach_name || 'Modul') : (fach_name || 'Modul');
+  // Niveau-/Sprachmodule (ENG-N3, MAT, …) tragen über mehrere Semester denselben
+  // Titel — als Header (modul.js / modul-sheet.js, ohne Semester-Subline) nicht
+  // unterscheidbar. Nur diese (nicht-numerische Modul-Nr) mit dem Semester
+  // disambiguieren; numerische Modulnummern (z.B. 254) sind pro Semester eindeutig.
+  if (num && /[A-Za-z]/.test(num)) {
+    const sem = (kuerzel_code || '').match(/-S(\d+)-/);
+    if (sem) return base + ' · S' + sem[1];
+  }
+  return base;
 }
 
 /* "vor 12 Min", "vor 3h", "vor 2 Tg", "vor 3 Wo", "vor 4 Mt", "vor 1 J".
