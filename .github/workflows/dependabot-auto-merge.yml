@@ -14,10 +14,13 @@ jobs:
     name: Auto-merge safe dependabot updates
     runs-on: ubuntu-latest
     if: github.event.pull_request.user.login == 'dependabot[bot]'
+    # Hinweis: 'workflows' ist KEIN gültiger Permission-Scope — ein solcher Key
+    # macht die Workflow-Datei invalide → Startup-Failure (0s), kein Job läuft,
+    # Auto-Merge wird nie aktiviert. Für `gh pr merge --auto` reichen contents +
+    # pull-requests. Nicht wieder hinzufügen.
     permissions:
       contents: write
       pull-requests: write
-      workflows: write
     steps:
       - name: Fetch Dependabot metadata
         id: meta
