@@ -1531,7 +1531,10 @@ async function runScrape(config, onLog, onPhase) {
     // ALLE Module (statt nur der passiv erfassten limit-25-Initialantwort, die
     // Module ab Position 26 verschluckt). Spiegelt den Absenzen-Voll-Suche-Pfad.
     try {
-      const firstReq = notenDwrReqCapture && notenDwrReqCapture.getFirst();
+      // notenDwrReqCapture ist hier garantiert gesetzt (Zuweisung vor Promise.all,
+      // Fehler davor landen im äusseren catch) → kein Truthy-Guard nötig. Spiegelt
+      // den Absenzen-Pfad oben.
+      const firstReq = notenDwrReqCapture.getFirst();
       if (firstReq) {
         const bumpedBody = bumpDwrPagingLimit(firstReq.postData, 1000);
         const safeHeaders = {};
