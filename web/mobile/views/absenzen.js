@@ -18,7 +18,7 @@ let absenzenState = { query: '', sort: 'name', typ: 'all', onlyUnterMin: false }
 
 /* Bandgrenzen für die Anwesenheits-Tönung. Liegt die Ist-Anwesenheit unter
  * der Minimalanwesenheit des Moduls → fail (rot). Knapp darüber (< +5 Punkte)
- * → warning (gelb). Sonst good (blau). Ohne Minimum (null) fallback auf feste
+ * → warning (gelb). Sonst good (grün). Ohne Minimum (null) fallback auf feste
  * 90/80-Bänder, damit die Farbe nie verschwindet. Spiegel von attendanceClass
  * auf Desktop (helpers.ts). */
 function attendanceClass(ist, min) {
