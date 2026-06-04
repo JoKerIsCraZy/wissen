@@ -310,6 +310,12 @@
   .main {
     flex: 1;
     overflow-y: auto;
+    /* Clip statt visible auf der X-Achse: die Settings-Save-Bar bricht per
+       negativem margin-inline aus der zentrierten .main__inner aus, um als
+       Full-Bleed-Footer bis an die Rail/Scrollbar zu reichen. clip schneidet
+       diesen Bleed pixelgenau an der .main-Kante ab (ohne eine horizontale
+       Scrollbar zu erzeugen, wie es overflow-x:auto taete). */
+    overflow-x: clip;
     scroll-behavior: smooth;
   }
   /* The route gets a comfortable PC-monitor width without going edge-to-edge

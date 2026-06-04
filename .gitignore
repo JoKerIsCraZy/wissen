@@ -48,6 +48,11 @@ wissen-release.jks
 .claude/
 claude_docs/
 
+# impeccable / emil-design-eng Skill-Kontext (lokal, agentenspezifisch — nicht
+# committen; beschreibt Produkt + Design-System fuer Design-Reviews)
+PRODUCT.md
+DESIGN.md
+
 # Raumplan-Editor (lokales Tool, persönliche Floorplan-Bearbeitung)
 raumpläne/
 

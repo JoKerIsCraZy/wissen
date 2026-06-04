@@ -11,6 +11,7 @@ import type {
 	AbsenzenLektionenResponse,
 	AbsenzenResponse,
 	ApiStatus,
+	DbResetResponse,
 	LogsResponse,
 	NotenHistoryResponse,
 	NotenQuery,
@@ -158,6 +159,11 @@ export const getStundenplan = (
 /** POST /api/stundenplan/clear — destructive: deletes ALL Stundenplan rows. */
 export const clearStundenplan = () =>
 	api<StundenplanClearResponse>('/stundenplan/clear', { method: 'POST' });
+
+/** POST /api/db/reset — destructive: deletes ALL scraped data (Noten/Pruefungen/
+ *  Stundenplan/Absenzen). Keeps push subscriptions + settings. */
+export const resetDb = () =>
+	api<DbResetResponse>('/db/reset', { method: 'POST' });
 
 // ---------- Stats ----------
 
