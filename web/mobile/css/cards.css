@@ -316,10 +316,10 @@ h2.m-day-h, h3.m-section-h { line-height: 1.3; }
    ============================================================ */
 
 /* Tonale Anwesenheits-Werte — auf .m-card__grade, .m-stat__value und
- * .m-stats-hero__value angewandt. Reuse der Grade-Hues: good = accent-blau,
- * excellent-grün gibt es bei Anwesenheit nicht (100 % ist „good", nicht
- * „exzellent"), warn = warning-orange, fail = danger-rot. */
-.m-att--good { color: var(--g-good); }
+ * .m-stats-hero__value angewandt. good = grün (--g-excellent), konsistent mit
+ * dem Desktop (a-good / „Teilgenommen" = grün, tone "has"), warn =
+ * warning-orange, fail = danger-rot. */
+.m-att--good { color: var(--g-excellent); }
 .m-att--warn { color: var(--warning); }
 .m-att--fail { color: var(--g-fail); }
 .m-att--none { color: var(--text-dim); }
@@ -357,8 +357,7 @@ h2.m-day-h, h3.m-section-h { line-height: 1.3; }
 /* Status-Badge — Wort + Form + Farbe (a11y: nie nur Farbe). Pille mit
  * getöntem Hintergrund + Border, Text trägt die Bedeutung. Die vier
  * Status-Kategorien aus der Status-Normalisierung (§3):
- *   teilgenommen   → ruhig/neutral (kein Alarm — Anwesenheit ist der
- *                    Normalfall, soll nicht schreien)
+ *   teilgenommen   → success/grün (konsistent mit Desktop, tone "has")
  *   offen          → dezent grau (noch kein Ergebnis)
  *   entschuldigt   → warning (Abwesenheit, aber unkritisch)
  *   unentschuldigt → danger (kritische Abwesenheit) */
@@ -376,9 +375,9 @@ h2.m-day-h, h3.m-section-h { line-height: 1.3; }
   white-space: nowrap;
 }
 .m-att-badge--teilgenommen {
-  color: var(--g-good);
-  background: var(--accent-soft);
-  border-color: var(--accent-border);
+  color: var(--g-excellent);
+  background: var(--success-soft);
+  border-color: var(--success-border);
 }
 .m-att-badge--offen {
   color: var(--text-mute);
