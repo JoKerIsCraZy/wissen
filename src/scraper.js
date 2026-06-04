@@ -1559,7 +1559,7 @@ async function runScrape(config, onLog, onPhase) {
     } catch (e) {
       log('  [Noten] ⚠️  Voll-Suche fehlgeschlagen (' + (e && e.message ? e.message : e) + ') — Fallback auf passiv erfasste Responses', 'warn');
     }
-    try { if (notenDwrReqCapture) notenDwrReqCapture.stop(); } catch (_) {} notenDwrReqCapture = null;
+    try { notenDwrReqCapture.stop(); } catch (_) {} notenDwrReqCapture = null;
 
     // DWR-Listener stoppen — alle weiteren Detail-Calls sollen nicht das
     // ID-Mapping verfälschen. Vor dem Stop noch alle gesammelten Responses
