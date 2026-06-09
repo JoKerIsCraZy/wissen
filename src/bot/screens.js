@@ -231,7 +231,7 @@ async function screenWoche() {
     text += '━━━━━━━━━━━━━━━━━━\n';
     text += '<b>' + dayLabel(date) + '</b>\n\n';
     for (const r of byDate[date]) {
-      text += '🕐 ' + r.zeit_von + '–' + r.zeit_bis + '  <b>' + escapeHtml(r.veranstaltung) + '</b>\n';
+      text += '🕐 ' + escapeHtml(r.zeit_von) + '–' + escapeHtml(r.zeit_bis) + '  <b>' + escapeHtml(r.veranstaltung) + '</b>\n';
       const bits = [];
       if (r.raum) bits.push('🏫 ' + r.raum);
       if (r.dozent) bits.push('👤 ' + r.dozent);
@@ -283,7 +283,7 @@ async function screenStundenplan() {
   for (const date of dates) {
     text += '\n━━ <b>' + escapeHtml(dayLabel(date)) + '</b> ━━\n';
     for (const r of byDate[date]) {
-      text += '\n🕐 <b>' + r.zeit_von + '–' + r.zeit_bis + '</b>  ' + escapeHtml(r.veranstaltung) + '\n';
+      text += '\n🕐 <b>' + escapeHtml(r.zeit_von) + '–' + escapeHtml(r.zeit_bis) + '</b>  ' + escapeHtml(r.veranstaltung) + '\n';
       const bits = [];
       if (r.raum) bits.push('🏫 ' + r.raum);
       if (r.dozent) bits.push('👤 ' + r.dozent);
@@ -335,7 +335,7 @@ function buildMonthlyStundenplan() {
     for (const date of dayKeys) {
       block += '\n━━ <b>' + escapeHtml(dayLabel(date)) + '</b> ━━\n';
       for (const r of byDay[date]) {
-        block += '\n🕐 <b>' + r.zeit_von + '–' + r.zeit_bis + '</b>  ' + escapeHtml(r.veranstaltung) + '\n';
+        block += '\n🕐 <b>' + escapeHtml(r.zeit_von) + '–' + escapeHtml(r.zeit_bis) + '</b>  ' + escapeHtml(r.veranstaltung) + '\n';
         const bits = [];
         if (r.raum) bits.push('🏫 ' + r.raum);
         if (r.dozent) bits.push('👤 ' + r.dozent);
@@ -367,7 +367,7 @@ function buildMonthMessage(label, dayKeys, byDay) {
   for (const date of dayKeys) {
     text += '\n━━ <b>' + escapeHtml(dayLabel(date)) + '</b> ━━\n';
     for (const r of byDay[date]) {
-      text += '\n🕐 <b>' + r.zeit_von + '–' + r.zeit_bis + '</b>  ' + escapeHtml(r.veranstaltung) + '\n';
+      text += '\n🕐 <b>' + escapeHtml(r.zeit_von) + '–' + escapeHtml(r.zeit_bis) + '</b>  ' + escapeHtml(r.veranstaltung) + '\n';
       const bits = [];
       if (r.raum) bits.push('🏫 ' + r.raum);
       if (r.dozent) bits.push('👤 ' + r.dozent);

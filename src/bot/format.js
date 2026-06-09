@@ -111,7 +111,7 @@ function formatTag(label, rows) {
   if (!rows.length) return '📅 <b>' + label + '</b>\n\nKeine Termine. 🎉';
   let text = '📅 <b>' + label + '</b>\n\n';
   for (const r of rows) {
-    text += '🕐 <b>' + r.zeit_von + '–' + r.zeit_bis + '</b>\n';
+    text += '🕐 <b>' + escapeHtml(r.zeit_von) + '–' + escapeHtml(r.zeit_bis) + '</b>\n';
     text += '📚 ' + escapeHtml(r.veranstaltung) + '\n';
     if (r.raum) text += '🏫 ' + escapeHtml(r.raum) + '\n';
     if (r.dozent) text += '👤 ' + escapeHtml(r.dozent) + '\n';

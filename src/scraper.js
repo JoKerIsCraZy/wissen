@@ -29,10 +29,13 @@ const ABSENZEN_DWR_CODE_RE = /[A-Z]{2,}-\d{2,}-[\w-]+/; // Kurzbezeichnung (Spec
 
 // ---------- Security Helpers ----------
 // Entfernt sensitive Query-Parameter aus Fehlermeldungen / URLs.
+// Deckt neben den klassischen OAuth-Parametern auch SAML- (SAMLResponse,
+// RelayState) und OIDC-Artefakte (id_token, nonce, session/sid) ab — die
+// MS-SSO-Redirect-URLs können je nach Flow alle davon tragen.
 function redact(s) {
   if (s == null) return '';
   return String(s).replace(
-    /([?&](?:password|passwd|code|access_token|refresh_token|token|secret|api[-_]?key)=)[^&\s]+/gi,
+    /([?&#](?:password|passwd|code|access_token|refresh_token|id_token|token|secret|api[-_]?key|client[-_]?secret|session|sid|nonce|SAMLResponse|RelayState)=)[^&\s#]+/gi,
     '$1[REDACTED]'
   );
 }
@@ -242,6 +245,7 @@ async function ensureLoggedIn(config, onLog, onPhase, onBrowser) {
         if (isDebug()) {
           const shot = path.join(cwd, 'debug-no-button.png');
           await page.screenshot({ path: shot, fullPage: true }).catch(() => {});
+          try { fs.chmodSync(shot, 0o600); } catch (_) { /* Windows / fehlender Shot */ }
           onLog('❌ Kein SSO-Button gefunden. Screenshot: ' + shot, 'error');
         } else {
           onLog('❌ Kein SSO-Button gefunden. (DEBUG_SCRAPER=true für Screenshot.)', 'error');
@@ -305,6 +309,7 @@ async function ensureLoggedIn(config, onLog, onPhase, onBrowser) {
       if (isDebug()) {
         const shot = path.join(cwd, 'debug-no-password.png');
         await loginPage.screenshot({ path: shot, fullPage: true }).catch(() => {});
+        try { fs.chmodSync(shot, 0o600); } catch (_) { /* Windows / fehlender Shot */ }
         onLog('❌ Passwortfeld nicht gefunden. Screenshot: ' + shot, 'error');
       } else {
         onLog('❌ Passwortfeld nicht gefunden. (DEBUG_SCRAPER=true für Screenshot.)', 'error');
@@ -443,6 +448,7 @@ async function ensureLoggedIn(config, onLog, onPhase, onBrowser) {
       try {
         const shot = path.join(cwd, 'login-error.png');
         await page.screenshot({ path: shot, fullPage: true });
+        try { fs.chmodSync(shot, 0o600); } catch (_) { /* Windows / fehlender Shot */ }
         onLog('📸 Screenshot: ' + shot, 'error');
       } catch (_) {}
     }

@@ -118,7 +118,19 @@ function fetchUpstreamRelease(loggerInstance) {
       timeout: 5000
     }, (res) => {
       let body = '';
-      res.on('data', (c) => { body += c; });
+      // Upstream-Body-Cap: ohne Limit könnte eine (z.B. via DNS-Hijack)
+      // manipulierte Riesen-Response den Prozess-Speicher fluten. Echte
+      // GitHub-Release-Responses liegen weit unter 512 KB.
+      const MAX_UPSTREAM_BODY = 512 * 1024;
+      res.on('data', (c) => {
+        body += c;
+        if (body.length > MAX_UPSTREAM_BODY) {
+          try { req.destroy(); } catch (_) {}
+          upstreamCache = { fetchedAt: Date.now(), data: null, error: true };
+          _logUpstreamError(loggerInstance, 'Response > ' + MAX_UPSTREAM_BODY + ' Bytes — abgebrochen');
+          resolve(null);
+        }
+      });
       res.on('end', () => {
         let data = null;
         let parsedOk = false;

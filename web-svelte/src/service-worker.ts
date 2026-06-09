@@ -148,7 +148,17 @@ sw.addEventListener('push', (event: PushEvent) => {
 sw.addEventListener('notificationclick', (event: NotificationEvent) => {
   event.notification.close();
   const data = event.notification.data as { url?: string } | undefined;
-  const target = data?.url ?? '/v2/';
+  const raw = data?.url ?? '/v2/';
+  // Same-Origin-Gate: die Ziel-URL kommt aus dem Push-Payload. Wer den
+  // VAPID-Private-Key hält, könnte sonst beliebige externe URLs unter
+  // App-Optik öffnen (Phishing). Fremde Origins fallen auf '/v2/' zurück.
+  let target = '/v2/';
+  try {
+    const u = new URL(raw, sw.location.origin);
+    if (u.origin === sw.location.origin) target = u.pathname + u.search + u.hash;
+  } catch (_err) {
+    /* kaputte URL → Fallback /v2/ */
+  }
   event.waitUntil((async () => {
     const all = await sw.clients.matchAll({ type: 'window', includeUncontrolled: true });
     for (const c of all) {

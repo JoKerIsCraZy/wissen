@@ -152,14 +152,19 @@ async function handleCallback(cb) {
 }
 
 async function handleUpdate(update) {
-  // Whitelist-Check für die drei erlaubten Update-Typen.
+  // Whitelist-Check für die zwei erlaubten Update-Typen.
   //
   // Bewusst KEIN Default-Fallback für unbekannte Update-Typen (channel_post,
   // business_message, my_chat_member, poll_answer, chat_join_request, ...).
   // Wir whitelisten in `getUpdates` schon via `allowed_updates`, aber falls
   // Telegram einen neuen Typ pusht, wird er hier silent ignoriert statt
   // gegen einen ungeprüften `from`-Lookup zu laufen.
-  const from = (update.message?.from) || (update.callback_query?.from) || (update.edited_message?.from);
+  //
+  // `edited_message` wird bewusst NICHT verarbeitet: ein nachträglich
+  // editierter alter Befehl würde sonst als frischer Command re-executen
+  // (z.B. /scrape). Der Bot führt kein Chat-Protokoll — es gibt keinen
+  // legitimen Use-Case für Edit-Re-Execution.
+  const from = (update.message?.from) || (update.callback_query?.from);
   if (!from || from.id !== state.allowedUserId) {
     state.logger?.log(`📱 Abgelehnt: User ${from?.id} (${from?.username || 'no username'})`, 'warn');
     return;
@@ -167,7 +172,6 @@ async function handleUpdate(update) {
 
   if (update.callback_query) return handleCallback(update.callback_query);
   if (update.message) return handleMessage(update.message);
-  if (update.edited_message) return handleMessage(update.edited_message);
   // Unknown update type → silent drop (siehe Whitelist-Kommentar oben).
 }
 
@@ -176,7 +180,7 @@ async function pollLoop() {
   let backoff = 1000;
   while (state.running) {
     try {
-      const updates = await tg('getUpdates', { offset: state.offset, timeout: 30, allowed_updates: ['message', 'edited_message', 'callback_query'] });
+      const updates = await tg('getUpdates', { offset: state.offset, timeout: 30, allowed_updates: ['message', 'callback_query'] });
       backoff = 1000;
       for (const u of updates) {
         try {

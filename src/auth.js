@@ -76,15 +76,17 @@ function ensureApiToken({ logger }) {
 }
 
 // Returns a token-comparing predicate using a constant-time compare against
-// the provided API_TOKEN. The buffer is closed-over so we hash once.
+// the provided API_TOKEN. Verglichen werden SHA-256-Digests statt der rohen
+// Buffer: beide Seiten sind dadurch immer gleich lang, d.h. es gibt keinen
+// Length-Mismatch-Early-Return mehr, dessen Timing die Token-Länge leaken
+// könnte (relevant bei kurzen Custom-Tokens via API_TOKEN env).
 function makeTokensMatch(API_TOKEN) {
-  const API_TOKEN_BUFFER = Buffer.from(API_TOKEN, 'utf8');
+  const API_TOKEN_HASH = crypto.createHash('sha256').update(API_TOKEN, 'utf8').digest();
   return function tokensMatch(provided) {
     if (typeof provided !== 'string' || !provided) return false;
-    const providedBuf = Buffer.from(provided, 'utf8');
-    if (providedBuf.length !== API_TOKEN_BUFFER.length) return false;
+    const providedHash = crypto.createHash('sha256').update(provided, 'utf8').digest();
     try {
-      return crypto.timingSafeEqual(providedBuf, API_TOKEN_BUFFER);
+      return crypto.timingSafeEqual(providedHash, API_TOKEN_HASH);
     } catch (_) {
       return false;
     }

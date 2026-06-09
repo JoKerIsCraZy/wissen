@@ -54,8 +54,11 @@ jobs:
         # `enable-cache: true` failed sonst mit "No file matched to [**/uv.lock]"
 
       - name: Run zizmor
+        # Version gepinnt statt @latest: uvx löst @latest zur Laufzeit gegen
+        # PyPI auf — ein kompromittiertes Release würde sonst ungeprüft mit
+        # security-events:write laufen (Supply-Chain). Bump bewusst manuell.
         run: |
-          uvx zizmor@latest \
+          uvx zizmor==1.25.2 \
             --format sarif \
             --persona regular \
             .github/workflows/ \

@@ -5,6 +5,17 @@
 *.pem
 *.key
 
+# Defense-in-Depth: Runtime-Secrets/-Daten auch ausserhalb von data/* blocken
+# (data/* greift nicht gegen `git add -f` oder verschobene Kopien im Root).
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+storage.json
+.master-key
+.api-token
+vapid.json
+
 # runtime / generated
 data/*
 !data/README.md

@@ -80,9 +80,15 @@ function drawNoten(data) {
       const avg = entry[1];
       const col = document.createElement('div');
       col.className = 'm-sem-grid__col';
-      col.innerHTML = '<div class="m-card__sub">Ø ' + sem + '</div>'
-        + '<div class="m-card__grade m-card__grade--sm ' + gradeClass(avg) + '">'
-        + (avg != null ? avg.toFixed(2) : '—') + '</div>';
+      // textContent statt innerHTML: `sem` kommt aus der API (Scrape-Daten) —
+      // via innerHTML wäre das ein XSS-Vektor bei manipuliertem Semester-String.
+      const sub = document.createElement('div');
+      sub.className = 'm-card__sub';
+      sub.textContent = 'Ø ' + sem;
+      const grade = document.createElement('div');
+      grade.className = 'm-card__grade m-card__grade--sm ' + gradeClass(avg);
+      grade.textContent = avg != null ? avg.toFixed(2) : '—';
+      col.append(sub, grade);
       semHero.append(col);
     });
     if (semHero.children.length) main.append(semHero);
