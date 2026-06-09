@@ -181,7 +181,7 @@ async function notifyRoomChanges(changes) {
     for (const c of sec.list) {
       const datum = dayLabel(c.datum_iso);
       text += '<b>' + escapeHtml(datum) + '</b>\n';
-      text += '🕐 ' + c.zeit_von + '–' + c.zeit_bis + '\n';
+      text += '🕐 ' + escapeHtml(c.zeit_von) + '–' + escapeHtml(c.zeit_bis) + '\n';
       text += '📚 ' + escapeHtml(c.veranstaltung) + '\n';
       text += '🏫 <s>' + escapeHtml(c.prev_raum) + '</s> → <b>' + escapeHtml(c.new_raum) + '</b>\n';
       if (c.dozent) text += '👤 ' + escapeHtml(c.dozent) + '\n';

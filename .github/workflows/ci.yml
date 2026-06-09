@@ -89,6 +89,11 @@ jobs:
       - run: npm ci --ignore-scripts
       - name: Audit runtime deps
         run: npm audit --omit=dev --audit-level=high
+      # web-svelte/ hat ein eigenes package.json + Lockfile — ohne diesen
+      # Step bleiben Frontend-Dependency-Vulns vom npm audit unentdeckt
+      # (osv-scanner deckt zwar beide Lockfiles ab, aber blockt PRs nicht).
+      - name: Audit web-svelte deps
+        run: cd web-svelte && npm ci --ignore-scripts && npm audit --audit-level=high
 
   docker-build:
     name: Docker build (smoke)

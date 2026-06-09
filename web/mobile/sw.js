@@ -11,7 +11,7 @@
    ============================================================ */
 'use strict';
 
-const VERSION = 'wn-22';
+const VERSION = 'wn-23';
 const SHELL_CACHE = 'wn-shell-' + VERSION;
 const API_CACHE = 'wn-api-' + VERSION;
 
@@ -184,7 +184,16 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const target = (event.notification.data && event.notification.data.url) || '/mobile/';
+  const raw = (event.notification.data && event.notification.data.url) || '/mobile/';
+  // Same-Origin-Gate: die Ziel-URL kommt aus dem Push-Payload. Wer den
+  // VAPID-Private-Key hält, könnte sonst beliebige externe URLs unter
+  // App-Optik öffnen (Phishing). Relative Pfade bleiben erlaubt, fremde
+  // Origins fallen auf die App-Root zurück.
+  let target = '/mobile/';
+  try {
+    const u = new URL(raw, self.location.origin);
+    if (u.origin === self.location.origin) target = u.pathname + u.search + u.hash;
+  } catch (_) { /* kaputte URL → Fallback /mobile/ */ }
   event.waitUntil((async () => {
     const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     for (const c of all) {

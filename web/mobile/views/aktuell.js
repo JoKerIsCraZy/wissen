@@ -31,8 +31,9 @@ const aktuellTileState = {
  *
  * Beim Dismiss: animiert das li transform translateX(-110%) + opacity 0,
  * collapsed dann die Höhe auf 0, ruft schließlich /api/dismiss und entfernt
- * das li aus dem DOM. */
-function attachSwipeToDismiss(li, btn, change) {
+ * das li aus dem DOM. `onDismissed(change)` wird optimistisch mitgerufen,
+ * damit der Caller abhängige UI (Tile-Header, Count-Badge) nachziehen kann. */
+function attachSwipeToDismiss(li, btn, change, onDismissed) {
   const reduceMotion = (() => {
     try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; }
     catch (_) { return false; }
@@ -150,6 +151,14 @@ function attachSwipeToDismiss(li, btn, change) {
         }
       });
     } catch (_) { /* ignore */ }
+
+    // Abhängige UI (Tile-Header mit Top-Eintrag + Count-Badge) sofort
+    // nachziehen — optimistisch, analog zur li-Entfernung oben. Ohne das
+    // zeigt der zugeklappte Header den entfernten Eintrag bis zum nächsten
+    // Voll-Re-Render (Seitenwechsel/Refresh).
+    if (typeof onDismissed === 'function') {
+      try { onDismissed(change); } catch (_) { /* ignore */ }
+    }
   }
 
   function snapBack() {
@@ -658,73 +667,83 @@ function drawAktuell(planData, notenData) {
     const shell = document.createElement('div');
     shell.className = 'm-now-tile-shell';
 
-    const top = freshChanges[0] || null;
     const trigger = document.createElement('button');
     trigger.type = 'button';
     trigger.className = 'm-now-tile m-now-tile--btn';
-    trigger.disabled = freshChanges.length === 0;
     trigger.setAttribute('aria-expanded', 'false');
 
-    const lblHtml = '<div class="m-now-tile__lbl">Letzte Änderung'
-      + (freshChanges.length > 1 ? ' <span class="m-now-tile__count mono">' + freshChanges.length + '</span>' : '')
-      + '</div>';
+    // Trigger-Inhalt (Top-Eintrag + Count-Badge) als Funktion, damit der
+    // Einzel-Swipe-Dismiss den zugeklappten Header live nachziehen kann.
+    // Vorher wurde der Header nur einmal beim Build gerendert — ein
+    // weggeswipter Eintrag blieb dort bis zum nächsten Voll-Re-Render
+    // sichtbar (Seitenwechsel/Refresh). innerHTML-Neuaufbau ist safe:
+    // Event-Listener hängen am trigger-Element selbst, nicht an Kindern.
+    function renderTriggerContent() {
+      const top = freshChanges[0] || null;
+      trigger.disabled = freshChanges.length === 0;
 
-    let valHtml = '';
-    let subHtml = '';
-    let nameHtml = '';
-    if (!top) {
-      valHtml = '<div class="m-now-tile__val m-now-tile__val--empty">—</div>';
-      subHtml = '<div class="m-now-tile__sub">Nichts neu</div>';
-    } else if (top.kind === 'noten') {
-      // Modul-Note auf 2 Kommastellen formatieren — Tocco's note_raw
-      // liefert "5.500" was zu viel ist. note (REAL) ist die Quelle.
-      const noteText = top.row.note != null
-        ? top.row.note.toFixed(2)
-        : (top.row.note_raw && top.row.note_raw.trim() ? top.row.note_raw : '—');
-      valHtml = '<div class="m-now-tile__val"></div>';
-      subHtml = '<div class="m-now-tile__sub"></div>';
-      nameHtml = noteText;
-    } else {
-      valHtml = '<div class="m-now-tile__kind">Zimmerwechsel</div>';
-      subHtml = '<div class="m-now-tile__sub"></div>';
-    }
-    trigger.innerHTML =
-      '<div class="m-now-tile__body">' + lblHtml + valHtml + subHtml + '</div>'
-      + chevSvg;
+      const lblHtml = '<div class="m-now-tile__lbl">Letzte Änderung'
+        + (freshChanges.length > 1 ? ' <span class="m-now-tile__count mono">' + freshChanges.length + '</span>' : '')
+        + '</div>';
 
-    if (top && top.kind === 'noten') {
-      const valCell = trigger.querySelector('.m-now-tile__val');
-      // Diff-Anzeige im Top-Tile: prev_note → note wenn vorher ein anderer
-      // Wert gespeichert war. Sonst nur die aktuelle Note.
-      const topHasDiff = top.row.prev_note != null
-        && top.row.note != null
-        && top.row.prev_note !== top.row.note;
-      if (topHasDiff) {
-        const prevSpan = document.createElement('span');
-        prevSpan.className = 'm-now-tile__val-prev mono';
-        prevSpan.title = 'Vorheriger Wert';
-        prevSpan.textContent = Number(top.row.prev_note).toFixed(2);
-        const arrowSpan = document.createElement('span');
-        arrowSpan.className = 'm-now-tile__val-arrow';
-        arrowSpan.setAttribute('aria-hidden', 'true');
-        arrowSpan.textContent = '→';
-        const currSpan = document.createElement('span');
-        currSpan.className = 'm-now-tile__val-curr';
-        currSpan.textContent = nameHtml;
-        valCell.append(prevSpan, arrowSpan, currSpan);
+      let valHtml = '';
+      let subHtml = '';
+      let nameHtml = '';
+      if (!top) {
+        valHtml = '<div class="m-now-tile__val m-now-tile__val--empty">—</div>';
+        subHtml = '<div class="m-now-tile__sub">Nichts neu</div>';
+      } else if (top.kind === 'noten') {
+        // Modul-Note auf 2 Kommastellen formatieren — Tocco's note_raw
+        // liefert "5.500" was zu viel ist. note (REAL) ist die Quelle.
+        const noteText = top.row.note != null
+          ? top.row.note.toFixed(2)
+          : (top.row.note_raw && top.row.note_raw.trim() ? top.row.note_raw : '—');
+        valHtml = '<div class="m-now-tile__val"></div>';
+        subHtml = '<div class="m-now-tile__sub"></div>';
+        nameHtml = noteText;
       } else {
-        valCell.textContent = nameHtml;
+        valHtml = '<div class="m-now-tile__kind">Zimmerwechsel</div>';
+        subHtml = '<div class="m-now-tile__sub"></div>';
       }
-      // Sub-Zeile: Modulnummer + Modulname (konsistent zur Letzte-Änderung-
-      // Liste unten und zum Desktop-Dashboard).
-      const topModNum = modulNummerOf(top.row.kuerzel_code);
-      const topFach = (top.row.fach_name || top.row.kuerzel_code || '');
-      trigger.querySelector('.m-now-tile__sub').textContent =
-        (topModNum ? topModNum + ' - ' : '') + topFach;
-    } else if (top && top.kind === 'plan') {
-      trigger.querySelector('.m-now-tile__sub').textContent =
-        ((top.row.veranstaltung || '') + (top.row.raum ? ' · ' + top.row.raum : '')).trim();
+      trigger.innerHTML =
+        '<div class="m-now-tile__body">' + lblHtml + valHtml + subHtml + '</div>'
+        + chevSvg;
+
+      if (top && top.kind === 'noten') {
+        const valCell = trigger.querySelector('.m-now-tile__val');
+        // Diff-Anzeige im Top-Tile: prev_note → note wenn vorher ein anderer
+        // Wert gespeichert war. Sonst nur die aktuelle Note.
+        const topHasDiff = top.row.prev_note != null
+          && top.row.note != null
+          && top.row.prev_note !== top.row.note;
+        if (topHasDiff) {
+          const prevSpan = document.createElement('span');
+          prevSpan.className = 'm-now-tile__val-prev mono';
+          prevSpan.title = 'Vorheriger Wert';
+          prevSpan.textContent = Number(top.row.prev_note).toFixed(2);
+          const arrowSpan = document.createElement('span');
+          arrowSpan.className = 'm-now-tile__val-arrow';
+          arrowSpan.setAttribute('aria-hidden', 'true');
+          arrowSpan.textContent = '→';
+          const currSpan = document.createElement('span');
+          currSpan.className = 'm-now-tile__val-curr';
+          currSpan.textContent = nameHtml;
+          valCell.append(prevSpan, arrowSpan, currSpan);
+        } else {
+          valCell.textContent = nameHtml;
+        }
+        // Sub-Zeile: Modulnummer + Modulname (konsistent zur Letzte-Änderung-
+        // Liste unten und zum Desktop-Dashboard).
+        const topModNum = modulNummerOf(top.row.kuerzel_code);
+        const topFach = (top.row.fach_name || top.row.kuerzel_code || '');
+        trigger.querySelector('.m-now-tile__sub').textContent =
+          (topModNum ? topModNum + ' - ' : '') + topFach;
+      } else if (top && top.kind === 'plan') {
+        trigger.querySelector('.m-now-tile__sub').textContent =
+          ((top.row.veranstaltung || '') + (top.row.raum ? ' · ' + top.row.raum : '')).trim();
+      }
     }
+    renderTriggerContent();
 
     shell.append(trigger);
 
@@ -890,7 +909,23 @@ function drawAktuell(planData, notenData) {
       // dismiss oder snap-back. Click-Suppression: wenn dragMoved=true, wird
       // der Click in der Capture-Phase auf li gestoppt damit er die Modul-
       // Sheet / Stundenplan-Navigation nicht auslöst.
-      attachSwipeToDismiss(li, btn, c);
+      attachSwipeToDismiss(li, btn, c, (change) => {
+        // Eintrag aus dem Daten-Array nehmen und den zugeklappten Header
+        // (Top-Eintrag + Count-Badge) live nachziehen — sonst zeigt das
+        // Tile den weggeswipten Eintrag bis zum nächsten Voll-Re-Render.
+        const idx = freshChanges.indexOf(change);
+        if (idx !== -1) freshChanges.splice(idx, 1);
+        renderTriggerContent();
+        if (!freshChanges.length) {
+          // Letzter Eintrag entfernt → Leer-Zustand wie beim Build mit
+          // 0 Änderungen: Panel zu, Open-State vergessen (trigger ist via
+          // renderTriggerContent bereits disabled, Label zeigt "Nichts neu").
+          panel.hidden = true;
+          shell.classList.remove('m-now-tile-shell--open');
+          trigger.setAttribute('aria-expanded', 'false');
+          aktuellTileState.lastChangedOpen = false;
+        }
+      });
     });
 
     // Restore persisted open state so re-renders don't collapse the panel.

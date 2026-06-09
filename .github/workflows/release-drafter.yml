@@ -6,9 +6,18 @@ name: Release Drafter
 #
 # Config: .github/release-drafter.yml (NICHT in .github/workflows/!)
 #
+# Seit release-drafter v7 ist der Autolabeler eine SEPARATE Sub-Action
+# (release-drafter/release-drafter/autolabeler) — der früher genutzte Input
+# `disable-autolabeler` existiert nicht mehr. Deshalb zwei Jobs mit minimalen
+# Permissions pro Aufgabe:
+#   - draft:     nur auf push:main — braucht contents:write (Draft-Release)
+#   - autolabel: nur auf pull_request — braucht NUR pull-requests:write,
+#                kein contents:write auf PR-getriggerten Runs (Least Privilege)
+#
 # Workflow:
-#   1. PR wird gemergt -> Drafter updated den nächsten Draft-Release automatisch
-#   2. Du gehst auf Releases -> Edit Draft -> Publish (oder via release.yml)
+#   1. PR wird geöffnet -> autolabel-Job setzt Labels gemäss autolabeler-Config
+#   2. PR wird gemergt -> draft-Job updated den nächsten Draft-Release
+#   3. Du gehst auf Releases -> Edit Draft -> Publish (oder via release.yml)
 
 on:
   push:
@@ -28,18 +37,32 @@ concurrency:
 jobs:
   draft:
     name: Update release draft
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       # Erstellt / updated den Draft-Release
       contents: write
-      # Labelt PRs (autolabeler-Feature)
-      pull-requests: write
+      # Liest gemergte PRs + deren Labels für die Kategorisierung
+      pull-requests: read
     steps:
       - name: Update draft
         uses: release-drafter/release-drafter@693d20e7c1ce1a81d3a41962f85914253b518449 # v7.3.1
         with:
           config-name: release-drafter.yml
-          # Disable wenn nur auf push:main triggern soll
-          disable-autolabeler: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  autolabel:
+    name: Autolabel PR
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      # Setzt Labels auf dem PR (autolabeler-Sektion in release-drafter.yml)
+      pull-requests: write
+    steps:
+      - name: Autolabel
+        uses: release-drafter/release-drafter/autolabeler@693d20e7c1ce1a81d3a41962f85914253b518449 # v7.3.1
+        with:
+          config-name: release-drafter.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

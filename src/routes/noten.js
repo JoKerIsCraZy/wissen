@@ -94,6 +94,17 @@ module.exports = function notenRoutes(deps) {
     }
   });
 
+  // ids[]-Element-Validierung für /api/seen + /api/dismiss: nur Strings/
+  // Zahlen mit sinnvoller Maximallänge. SQL-Injection ist durch Prepared
+  // Statements ohnehin ausgeschlossen — das hier kappt nur Garbage-Payloads
+  // (Objekte, Mega-Strings) bevor sie die DB-Schicht erreichen.
+  function validIds(ids) {
+    return ids.every((id) =>
+      (typeof id === 'string' && id.length > 0 && id.length <= 128) ||
+      (typeof id === 'number' && Number.isFinite(id))
+    );
+  }
+
   // ---------- Frisch-Markierung als gesehen ----------
   // Vom Client gerufen (IntersectionObserver-Batch), wenn ein gelb markiertes
   // Item im Viewport sichtbar war. Setzt change_seen_at auf jetzt; 24h später
@@ -109,6 +120,9 @@ module.exports = function notenRoutes(deps) {
     }
     if (ids.length > 200) {
       return apiError(res, 400, 'maximal 200 ids pro Request');
+    }
+    if (!validIds(ids)) {
+      return apiError(res, 400, 'ids müssen Strings (max 128 Zeichen) oder Zahlen sein');
     }
     try {
       const updated = db.markSeen(database, kind, ids);
@@ -151,6 +165,7 @@ module.exports = function notenRoutes(deps) {
       if (ids != null) {
         if (!Array.isArray(ids)) return apiError(res, 400, 'ids muss ein Array sein');
         if (ids.length > 200) return apiError(res, 400, 'maximal 200 ids pro Request');
+        if (!validIds(ids)) return apiError(res, 400, 'ids müssen Strings (max 128 Zeichen) oder Zahlen sein');
       }
       const dismissed = db.dismissChanges(database, kind, ids != null ? ids : null);
       if (kind === 'noten') totalNoten = dismissed;

@@ -28,10 +28,29 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
+      # GitHub-Actions-Bumps ändern Workflow-Dateien (.github/workflows/*) —
+      # die darf das GITHUB_TOKEN (App-Token ohne `workflows`-Permission)
+      # grundsätzlich NICHT mergen. `gh pr merge --auto` failt dann hart mit
+      # "refusing to allow a GitHub App to create or update workflow ...".
+      # Die Permission lässt sich im permissions:-Block nicht vergeben →
+      # bewusst NICHT auto-mergen, sondern grün skippen + Kommentar.
+      # Manueller Merge ist bei Workflow-Änderungen ohnehin wünschenswert.
+      - name: Flag workflow-file update for manual merge
+        if: steps.meta.outputs.package-ecosystem == 'github_actions'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          DEP_NAMES: ${{ steps.meta.outputs.dependency-names }}
+          PREVIOUS_VERSION: ${{ steps.meta.outputs.previous-version }}
+          NEW_VERSION: ${{ steps.meta.outputs.new-version }}
+        run: |
+          gh pr comment "$PR_URL" --body "🔒 **Workflow-Datei-Bump** ($DEP_NAMES: $PREVIOUS_VERSION → $NEW_VERSION) — Auto-Merge nicht möglich: das GITHUB_TOKEN darf Workflow-Dateien nicht mergen (fehlende \`workflows\`-Permission, von GitHub nicht vergebbar). Bitte manuell mergen, sobald die Checks grün sind."
+
       - name: Enable auto-merge (patch + minor only)
         if: >
-          steps.meta.outputs.update-type == 'version-update:semver-patch' ||
-          steps.meta.outputs.update-type == 'version-update:semver-minor'
+          steps.meta.outputs.package-ecosystem != 'github_actions' &&
+          (steps.meta.outputs.update-type == 'version-update:semver-patch' ||
+           steps.meta.outputs.update-type == 'version-update:semver-minor')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_URL: ${{ github.event.pull_request.html_url }}
@@ -41,7 +60,9 @@ jobs:
           gh pr comment "$PR_URL" --body "🤖 Auto-merge aktiviert ($UPDATE_TYPE). Wird gemerged sobald alle Checks grün sind."
 
       - name: Flag major update for manual review
-        if: steps.meta.outputs.update-type == 'version-update:semver-major'
+        if: >
+          steps.meta.outputs.package-ecosystem != 'github_actions' &&
+          steps.meta.outputs.update-type == 'version-update:semver-major'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_URL: ${{ github.event.pull_request.html_url }}
