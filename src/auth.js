@@ -80,6 +80,14 @@ function ensureApiToken({ logger }) {
 // Buffer: beide Seiten sind dadurch immer gleich lang, d.h. es gibt keinen
 // Length-Mismatch-Early-Return mehr, dessen Timing die Token-Länge leaken
 // könnte (relevant bei kurzen Custom-Tokens via API_TOKEN env).
+//
+// CodeQL js/insufficient-password-hash ist hier ein False Positive: die
+// Regel adressiert Passwort-SPEICHERUNG (gespeicherte Fast-Hashes sind
+// offline bruteforcebar → bcrypt/scrypt nötig). Dieser Digest wird nie
+// persistiert oder exponiert — er existiert nur in-memory zur Längen-
+// Normalisierung für timingSafeEqual (Standard-Idiom). Ein KDF würde
+// jeden API-Request um zweistellige Millisekunden verteuern, ohne
+// Sicherheitsgewinn in diesem Threat-Model.
 function makeTokensMatch(API_TOKEN) {
   const API_TOKEN_HASH = crypto.createHash('sha256').update(API_TOKEN, 'utf8').digest();
   return function tokensMatch(provided) {
