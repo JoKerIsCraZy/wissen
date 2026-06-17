@@ -19,6 +19,9 @@ ENV NODE_ENV=production \
 # Pull latest security patches from Ubuntu + upgrade bundled npm
 # (fixes Trivy HIGH in /usr/lib/node_modules/npm: tar, minimatch, picomatch,
 #  and MEDIUM/LOW in openssl, libssl3, libudev1, libgdk-pixbuf, libcap2)
+# npm 11.17.0 also bundles brace-expansion 5.0.6 (CVE-2026-45149) and
+# tar 7.5.16 (node-tar PAX long-name/long-link header smuggling) — fixes the
+# two remaining Trivy MEDIUMs in /usr/lib/node_modules/npm.
 # Also installs gosu for PUID/PGID privilege drop in the entrypoint.
 # DEBIAN_FRONTEND=noninteractive prevents tzdata's interactive geographic-area
 # prompt during `apt upgrade` from blocking the build.
@@ -55,7 +58,7 @@ RUN echo "apt-refresh=${APT_REFRESH}" \
  && gosu nobody true \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/* \
- && npm install -g npm@11.14.1 \
+ && npm install -g npm@11.17.0 \
  && npm cache clean --force
 
 # --------- deps: install production dependencies ---------
