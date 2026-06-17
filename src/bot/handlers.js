@@ -32,7 +32,8 @@ const CMD_MAP = {
   '/morgen': 'morgen',
   '/woche': 'woche',
   '/stundenplan': 'stundenplan',
-  '/scrape': 'scrape',
+  '/abfrage': 'scrape',  // kanonisch — mappt auf denselben Screen wie /scrape
+  '/scrape': 'scrape',   // alter Alias, bleibt aktiv
   '/status': 'status'
 };
 

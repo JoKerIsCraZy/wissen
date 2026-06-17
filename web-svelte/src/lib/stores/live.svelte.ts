@@ -26,8 +26,8 @@ class LiveState {
     } else if (s.running) {
       this.kind = 'running';
       this.label = s.currentPhase
-        ? `Scrape: ${this.formatPhase(s.currentPhase)}`
-        : 'Scrape läuft';
+        ? `Abfrage: ${this.formatPhase(s.currentPhase)}`
+        : 'Abfrage läuft';
     } else {
       this.kind = 'idle';
       this.label = 'Bereit';

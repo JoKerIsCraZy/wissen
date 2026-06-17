@@ -1755,6 +1755,11 @@ async function runScrape(config, onLog, onPhase) {
 module.exports = {
   runScrape,
   redact,
+  // Login-Primitiven für den REST-Producer-Pfad (loginBridge.js). ensureLoggedIn
+  // macht MS-SSO + storage.json-Cache und liefert { browser, context, page };
+  // closeBrowserSafe ist das harte 10s-Close-mit-SIGKILL-Muster.
+  ensureLoggedIn,
+  closeBrowserSafe,
   // Exposed for tests / ad-hoc usage
   parseDwrIdMap,
   parsePruefungen,

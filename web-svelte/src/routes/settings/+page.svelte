@@ -331,7 +331,7 @@
         fullDbResetError = null;
         pushToast(
           'success',
-          `✓ Datenbank zurückgesetzt · ${n} Zeile${n === 1 ? '' : 'n'} gelöscht · jetzt neu scrapen`
+          `✓ Datenbank zurückgesetzt · ${n} Zeile${n === 1 ? '' : 'n'} gelöscht · jetzt neu abfragen`
         );
         if (typeof window !== 'undefined') window.dispatchEvent(new Event('wissen:scrape'));
       } catch (e) {
@@ -436,7 +436,7 @@
       <div class="row row--inline">
         <div class="row__main">
           <label for="autoRun">Auto-Run aktivieren</label>
-          <p class="hint">Startet Scrape nach Zeitplan.</p>
+          <p class="hint">Startet Abfrage nach Zeitplan.</p>
         </div>
         <button
           type="button"
@@ -458,7 +458,7 @@
         <div class="row__main">
           <label for="manualScrapeFullDetails">Manuell: alle Moduldetails</label>
           <p class="hint">
-            Manueller Scrape zieht die Details aller Module neu, statt nur
+            Manuelle Abfrage zieht die Details aller Module neu, statt nur
             geänderter. Auto-Run bleibt unverändert.
           </p>
         </div>
@@ -467,7 +467,7 @@
           class="toggle"
           role="switch"
           aria-checked={formManualScrapeFullDetails}
-          aria-label="Manueller Scrape: alle Moduldetails mitscrapen"
+          aria-label="Manuelle Abfrage: alle Moduldetails mitziehen"
           onclick={() => (formManualScrapeFullDetails = !formManualScrapeFullDetails)}
           onkeydown={(e) =>
             onToggleKeydown(e, () => (formManualScrapeFullDetails = !formManualScrapeFullDetails))}
@@ -758,7 +758,7 @@
   <section class="sec sec--danger">
     <header class="sec__head">
       <h2 class="sec__title">Datenbank</h2>
-      <span class="sec__hint">Daten werden beim nächsten Scrape neu geladen. Push-Abos &amp; Einstellungen bleiben erhalten.</span>
+      <span class="sec__hint">Daten werden bei der nächsten Abfrage neu geladen. Push-Abos &amp; Einstellungen bleiben erhalten.</span>
     </header>
 
     <div class="rows">
@@ -821,7 +821,7 @@
           </label>
         {:else}
           <span class="db-reset__note">
-            Löscht alle gescrapten Daten. Push-Abos &amp; Einstellungen bleiben. Danach einmal scrapen.
+            Löscht alle abgerufenen Daten. Push-Abos &amp; Einstellungen bleiben. Danach einmal abfragen.
           </span>
         {/if}
         {#if fullDbResetError}

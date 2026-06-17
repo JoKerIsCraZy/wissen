@@ -755,7 +755,7 @@
     <div class="now-card now-card--idle">
       <div class="now-card__label">Noch keine Daten</div>
       <div class="now-card__title">
-        Klick oben rechts auf <kbd class="kbd">Scrape</kbd> oder drücke
+        Klick oben rechts auf <kbd class="kbd">Abfragen</kbd> oder drücke
         <kbd class="kbd">r</kbd>, um zu starten.
       </div>
     </div>

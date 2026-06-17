@@ -17,7 +17,7 @@ function mainMenu() {
         { text: '📋 Stundenplan', callback_data: 'stundenplan' }
       ],
       [
-        { text: '🔄 Scrape', callback_data: 'scrape' },
+        { text: '🔄 Abfrage', callback_data: 'scrape' },
         { text: '📟 Status', callback_data: 'status' }
       ]
     ]

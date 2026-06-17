@@ -62,7 +62,7 @@ function drawAbsenzen(data) {
   if (!rows.length) {
     const empty = document.createElement('div');
     empty.className = 'm-empty';
-    empty.textContent = 'Noch keine Absenzen-Daten — starte einen Scrape.';
+    empty.textContent = 'Noch keine Absenzen-Daten — starte eine Abfrage.';
     main.append(empty);
     return;
   }

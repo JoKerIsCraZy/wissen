@@ -27,7 +27,7 @@
     { id: 'r-settings',    label: 'Einstellungen öffnen', icon: '⚙', hint: 'g e', action: () => { void goto(`${base}/settings`); } },
     { id: 'r-push',        label: 'Push öffnen',         icon: '⤴', hint: 'g p', action: () => { void goto(`${base}/push`); } },
     { id: 'r-telegram',    label: 'Telegram öffnen',     icon: '⏚', hint: 'g t', action: () => { void goto(`${base}/telegram`); } },
-    { id: 'a-scrape',      label: 'Scrape jetzt starten', icon: '►', hint: 'r', action: () => { window.dispatchEvent(new CustomEvent('wissen:scrape')); } },
+    { id: 'a-scrape',      label: 'Abfrage jetzt starten', icon: '►', hint: 'r', action: () => { window.dispatchEvent(new CustomEvent('wissen:scrape')); } },
     { id: 'a-logs',        label: 'Logs umschalten',     icon: '☰', hint: '⌘L', action: () => { peek.toggle(); } },
     { id: 'a-help',        label: 'Tastatur-Hilfe',      icon: '?', hint: '?', action: () => { if (onHelpOpen) onHelpOpen(); } },
     { id: 'a-logout',      label: 'Abmelden',            icon: '⏻',           action: () => { void goto(`${base}/login`); } },

@@ -64,8 +64,18 @@ const DEFAULTS = Object.freeze({
   port: 3000,
   telegramEnabled: false,
   telegramToken: '',
-  telegramAllowedUserId: null
+  telegramAllowedUserId: null,
+  // Datenquelle: 'rest' (nice2 REST v2 + DWR getDetailData) ist seit Go-Live der
+  // Default. 'scrape' (DOM-Scraping) bleibt als Fallback via DATA_SOURCE=scrape.
+  // env-only (DATA_SOURCE), env hat Vorrang vor settings.json.
+  dataSource: 'rest'
 });
+
+// Harter Mindest-Floor fürs Polling-Intervall (Minuten). Schützt vor
+// versehentlichem Sub-Minuten-Hammering der Tocco-ACL — relevant seit REST/DWR
+// einen Cycle in Sekunden statt Minuten erledigt. Ersetzt die alte n>0-Grenze,
+// die 0.x-Minuten zugelassen hätte.
+const MIN_INTERVAL_MINUTES = 2;
 
 // ---------- Allowlists ----------
 // Keys, die das Web-UI IMMER per PATCH /api/settings setzen darf.
@@ -99,7 +109,8 @@ const ENV_ONLY_KEYS = Object.freeze([
   'notenUrl',
   'stundenplanUrl',
   'absenzenUrl',
-  'port'
+  'port',
+  'dataSource'
 ]);
 
 // Optionaler Logger-Hook (von server.js injiziert) für Warnungen.
@@ -126,7 +137,7 @@ function loadEnv() {
   const ENV_KEYS = [
     'MS_EMAIL','MS_PASSWORD','USER_PK','TOCCO_BASE','NOTEN_URL','STUNDENPLAN_URL','ABSENZEN_URL',
     'HEADLESS','SLOW_MO','INTERVAL_MINUTES','AUTO_RUN','PORT',
-    'TELEGRAM_TOKEN','TELEGRAM_ALLOWED_USER_ID','TELEGRAM_ENABLED'
+    'TELEGRAM_TOKEN','TELEGRAM_ALLOWED_USER_ID','TELEGRAM_ENABLED','DATA_SOURCE'
   ];
   for (const k of ENV_KEYS) {
     if (process.env[k] != null && process.env[k] !== '') {
@@ -166,6 +177,9 @@ function envToSettings(env) {
     if (!Number.isNaN(n)) s.telegramAllowedUserId = n;
   }
   if (env.TELEGRAM_ENABLED != null) s.telegramEnabled = env.TELEGRAM_ENABLED === 'true';
+  // Datenquelle env-only: nur 'rest' aktiviert den REST-Producer, alles andere
+  // (inkl. fehlend) bleibt 'scrape'. coerce() härtet das nochmal ab.
+  if (env.DATA_SOURCE != null && env.DATA_SOURCE !== '') s.dataSource = env.DATA_SOURCE;
   return s;
 }
 
@@ -240,7 +254,9 @@ function coerce(patch) {
 
   if ('intervalMinutes' in out) {
     const n = Number(out.intervalMinutes);
-    out.intervalMinutes = (Number.isFinite(n) && n > 0) ? Math.floor(n) : DEFAULTS.intervalMinutes;
+    out.intervalMinutes = (Number.isFinite(n) && n > 0)
+      ? Math.max(MIN_INTERVAL_MINUTES, Math.floor(n))
+      : DEFAULTS.intervalMinutes;
   }
   if ('slowMo' in out) {
     const n = Number(out.slowMo);
@@ -280,6 +296,10 @@ function coerce(patch) {
   }
   if ('scheduleMode' in out) {
     out.scheduleMode = (out.scheduleMode === 'weekly') ? 'weekly' : 'interval';
+  }
+  if ('dataSource' in out) {
+    // Nur 'rest' aktiviert den REST-Producer; alles andere → 'scrape' (Default).
+    out.dataSource = (out.dataSource === 'rest') ? 'rest' : 'scrape';
   }
   if ('scheduleDays' in out) {
     if (!Array.isArray(out.scheduleDays)) out.scheduleDays = [];

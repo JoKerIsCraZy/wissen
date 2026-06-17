@@ -86,6 +86,8 @@ async function main() {
   const userPk = env.USER_PK || '';
   const headless = env.HEADLESS !== 'false';
   const slowMo = parseInt(env.SLOW_MO || '0', 10);
+  // Datenquelle: 'rest' (nice2 REST v2) | 'scrape' (DOM, Default). env-only.
+  const dataSource = env.DATA_SOURCE === 'rest' ? 'rest' : 'scrape';
 
   const dataDir = path.join(process.cwd(), 'data');
   fs.mkdirSync(dataDir, { recursive: true });
@@ -100,6 +102,7 @@ async function main() {
     baseUrl,
     headless,
     slowMo,
+    dataSource,
     storageFile: path.join(dataDir, 'storage.json'),
     cwd: dataDir,
     // storage.json at-rest verschlüsseln (replaybare SSO-Session-Cookies).
@@ -108,7 +111,18 @@ async function main() {
 
   console.log('🎓 Tocco WISS CLI');
 
-  const result = await scraper.runScrape(config, onLog);
+  // REST-Pfad (DATA_SOURCE=rest): loginBridge + producer liefern formgleiche
+  // Daten; der Browser gehört dann der Bridge (im finally via restBridge.close).
+  // Default-Scrape-Pfad bleibt unverändert.
+  let restBridge = null;
+  const result = config.dataSource === 'rest'
+    ? await (async () => {
+        const { loginAndOpen } = require('./rest/loginBridge');
+        const restProducer = require('./rest/producer');
+        restBridge = await loginAndOpen(config, onLog);
+        return restProducer.run(restBridge.page, { log: onLog });
+      })()
+    : await scraper.runScrape(config, onLog);
   try {
     const { noten, stundenplan, detailIdMap } = result;
 
@@ -133,7 +147,12 @@ async function main() {
   } finally {
     // runScrape lässt den Browser jetzt offen, damit der Server-Pfad einzelne
     // Module nachscrapen kann. Die CLI nutzt das nicht — also schließen wir hier.
-    if (typeof result.closeBrowser === 'function') await result.closeBrowser();
+    // REST-Pfad: result.closeBrowser ist no-op → Browser via restBridge.close().
+    if (restBridge && typeof restBridge.close === 'function') {
+      await restBridge.close();
+    } else if (typeof result.closeBrowser === 'function') {
+      await result.closeBrowser();
+    }
   }
 }
 

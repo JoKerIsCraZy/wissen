@@ -70,7 +70,7 @@ function drawStatsEmpty(errMsg) {
   const p = document.createElement('p');
   p.textContent = errMsg
     ? 'Statistik konnte nicht geladen werden.'
-    : 'Noch keine Daten vorhanden — starte einen Scrape.';
+    : 'Noch keine Daten vorhanden — starte eine Abfrage.';
   const btn = document.createElement('button');
   btn.className = 'm-btn m-btn--primary';
   btn.type = 'button';
