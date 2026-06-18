@@ -66,6 +66,9 @@ function buildScraperConfig(s) {
     storageFile: path.join(DATA_DIR, 'storage.json'),
     cwd: DATA_DIR,
     detailScrapeConcurrency: s.detailScrapeConcurrency,
+    // Datenquelle ('scrape' Default | 'rest'). env-only via DATA_SOURCE, vom
+    // settings-Merge gesetzt; steuert die Verzweigung im Scrape-Cycle.
+    dataSource: s.dataSource === 'rest' ? 'rest' : 'scrape',
     // storage.json at-rest verschlüsseln (replaybare SSO-Session-Cookies).
     storageCrypto: { encrypt: secretCrypto.encrypt, decrypt: secretCrypto.decrypt }
   };
@@ -145,7 +148,7 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
 
   async function runScrapeCycle(reason, opts = {}) {
     if (state.running) {
-      logger.log(`⚠️  Scrape bereits aktiv — Trigger "${reason}" ignoriert`, 'warn');
+      logger.log(`⚠️  Abfrage bereits aktiv — Trigger "${reason}" ignoriert`, 'warn');
       return { triggered: false, reason: 'already_running' };
     }
 
@@ -169,12 +172,17 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
     }
     scheduler.clearTimer();
     sse.setPhase(state, settings, 'starting');
-    logger.log(`🚀 Scrape gestartet (reason=${reason})`, 'info');
+    logger.log(`🚀 Abfrage gestartet (reason=${reason})`, 'info');
 
     const startTs = Date.now();
     let result = null;
     let database = null;
     let scraped = null;
+    // REST-Pfad (config.dataSource === 'rest'): die loginBridge hält Browser +
+    // Page-Lifecycle. scraped.closeBrowser ist dann ein no-op; stattdessen wird
+    // restBridge.close() im finally NACH dem Detail-Pass aufgerufen — exakt an
+    // der Stelle, an der der Scraper-Pfad scraped.closeBrowser() aufruft.
+    let restBridge = null;
     // earlyBrowser wird vom scraper via onBrowserReady-Callback gesetzt,
     // sobald chromium.launch() resolved hat. Damit kann der Watchdog den
     // Browser ALSBALD killen — auch wenn der Hänger im Login-Flow auftritt
@@ -191,23 +199,26 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
       if (!state.running) return; // schon fertig, no-op
       watchdogFired = true;
       const minutes = Math.round(SCRAPE_TIMEOUT_MS / 60000);
-      logger.log(`⚠️  Scrape-Watchdog: ${minutes} min ohne Fortschritt — state wird zurückgesetzt (Orphan-Scrape läuft evtl. im Hintergrund)`, 'error');
-      state.lastError = `Scrape-Watchdog-Timeout nach ${minutes} min`;
+      logger.log(`⚠️  Abfrage-Watchdog: ${minutes} min ohne Fortschritt — state wird zurückgesetzt (Orphan-Abfrage läuft evtl. im Hintergrund)`, 'error');
+      state.lastError = `Abfrage-Watchdog-Timeout nach ${minutes} min`;
       state.running = false;
       sse.setPhase(state, settings, null);
       sse.broadcastStatus(settings, state);
-      sse.broadcastSse('scrape_done', {
+      sse.broadcastDone({
         ok: false,
         error: state.lastError,
         stats: null,
         finishedAt: new Date().toISOString()
       });
       // Best-effort: Browser killen, damit hängender Playwright-Await throws.
-      // Erst über scraped.closeBrowser (wenn schon resolved), sonst via
-      // earlyBrowser-Referenz aus onBrowserReady-Callback. earlyBrowser deckt
-      // den frühen Hänger-Pfad ab (z.B. MS Conditional-Access-Loop), bevor
-      // runScrape() überhaupt resolved.
-      if (scraped && typeof scraped.closeBrowser === 'function') {
+      // REST-Pfad zuerst (scraped.closeBrowser ist dort no-op → restBridge.close
+      // ist der echte Close). Sonst über scraped.closeBrowser (Scraper-Pfad,
+      // wenn schon resolved), sonst via earlyBrowser-Referenz aus dem
+      // onBrowserReady-Callback. earlyBrowser deckt den frühen Hänger-Pfad ab
+      // (z.B. MS Conditional-Access-Loop), bevor runScrape() überhaupt resolved.
+      if (restBridge && typeof restBridge.close === 'function') {
+        restBridge.close().catch(() => { /* swallow */ });
+      } else if (scraped && typeof scraped.closeBrowser === 'function') {
         scraped.closeBrowser().catch(() => { /* swallow */ });
       } else if (earlyBrowser) {
         try {
@@ -238,11 +249,22 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
         // der erste Page-Load passiert.
         onBrowserReady: (b) => { earlyBrowser = b; }
       };
-      scraped = await scraper.runScrape(
-        cfg,
-        (msg, level) => logger.log(msg, level),
-        (phase) => sse.setPhase(state, settings, phase)
-      );
+      const onLog = (msg, level) => logger.log(msg, level);
+      const onPhase = (phase) => sse.setPhase(state, settings, phase);
+      if (cfg.dataSource === 'rest') {
+        // REST-Producer: loginBridge liefert eine eingeloggte Noten-Page (DWR-
+        // Engine geladen); producer.run baut das formgleiche Ergebnis-Objekt.
+        // Der Browser MUSS bis nach dem Detail-Pass offen bleiben — die
+        // scrapeDetail/scrapeAbsenzenDetail-Calls lesen zwar aus dem Cache (kein
+        // Browser nötig), aber wir schliessen einheitlich im finally via
+        // restBridge.close(). scraped.closeBrowser ist hier ein no-op.
+        const { loginAndOpen } = require('./rest/loginBridge');
+        const restProducer = require('./rest/producer');
+        restBridge = await loginAndOpen(cfg, onLog, onPhase);
+        scraped = await restProducer.run(restBridge.page, { log: onLog });
+      } else {
+        scraped = await scraper.runScrape(cfg, onLog, onPhase);
+      }
       result = scraped;
 
       // Persistieren
@@ -256,7 +278,10 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
         detailIdsUpdated = db.updateDetailIds(database, scraped.detailIdMap);
       }
 
-      const sStats = db.saveStundenplan(database, scraped.stundenplan || []);
+      const sStats = db.saveStundenplan(database, scraped.stundenplan || [], { source: s.dataSource });
+      if (sStats.replaced) {
+        logger.log(`🔄 Stundenplan-Quelle gewechselt (→ ${s.dataSource}) — Tabelle einmalig neu aufgebaut (alte Quell-Zeilen entfernt, keine Duplikate)`, 'info');
+      }
       const pruned = db.pruneVergangen(database);
 
       // Absenzen-Übersicht persistieren (vierte Daten-Achse). saveAbsenzen ist
@@ -283,7 +308,14 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
       // aktiviertem Toggle, UND der letzte geplante Lauf des Tages (täglicher
       // Voll-Refresh am Tagesende). Siehe isFullDetailRefresh().
       const isWeekly = reason === 'weekly';
-      const fullDetailRefresh = isFullDetailRefresh(reason, opts, s);
+      // REST/DWR liefert die Details billig (HTTP-RPC, kein Page-Pool, kein
+      // Frame-detach-Risiko) → jeder REST-Cycle macht Voll-Detail. So werden
+      // Prüfungs-Änderungen (ZP/LB) pro Cycle erkannt statt nur wöchentlich.
+      // Der Scraper-Pfad behält die isFullDetailRefresh-Rationierung (teure
+      // Page-Loads).
+      const fullDetailRefresh = s.dataSource === 'rest'
+        ? true
+        : isFullDetailRefresh(reason, opts, s);
 
       // Absenz-Detail-Pass + Push laufen NICHT bei jedem Autorun-Lauf, sondern
       // nur beim LETZTEN geplanten Lauf des Tages (opts.isLastRunOfDay, vom
@@ -293,7 +325,9 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
       // stündlich frisch; nur die teure Tagesliste + Push warten auf den
       // Tages-Abschlusslauf. Autorun feuert nur an scheduleDays → „nur an
       // eingestellten Tagen" ist dadurch automatisch erfüllt.
-      const runAbsenzDetail = reason !== 'scheduled' || opts.isLastRunOfDay === true;
+      // REST: Absenz-Lektionen kommen billig per REST (Reservation_registration)
+      // → jeden Cycle voll. Scraper: weiter nur am Tagesabschluss (teurer Pool).
+      const runAbsenzDetail = s.dataSource === 'rest' || reason !== 'scheduled' || opts.isLastRunOfDay === true;
       const toScrape = fullDetailRefresh
         ? db.getKuerzelnWithDetailId(database).map(r => ({ kuerzel_id: r.kuerzel_id, detail_id: r.detail_id }))
         : db.getKuerzelnNeedingDetailScrape(database, changedKuerzelIds);
@@ -313,7 +347,7 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
           : (reason === 'scheduled' && opts.isLastRunOfDay)
             ? ' (täglicher Voll-Refresh, letzter Lauf des Tages)'
             : (fullDetailRefresh ? ' (manueller Voll-Refresh)' : '');
-        logger.log(`📥 Detail-Scrape für ${toScrape.length} Modul(e)${refreshLabel} — parallel via Page-Pool`, 'info');
+        logger.log(`📥 Detail-Abfrage für ${toScrape.length} Modul(e)${refreshLabel} — parallel via Page-Pool`, 'info');
 
         // Phase 1: parallel Detail-Scrapes feuern. Der Page-Pool im Scraper
         // limited die Concurrency intern (default 4) — wir können hier
@@ -334,7 +368,7 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
           r.status === 'rejected' && /Timeout|MAX_WAIT/i.test((r.reason && r.reason.message) || '')
         ).length;
         if (timeouts >= 5) {
-          logger.log(`  ⚠️  ${timeouts} Detail-Scrape-Timeouts — Tocco evtl. langsam`, 'warn');
+          logger.log(`  ⚠️  ${timeouts} Detail-Abfrage-Timeouts — Tocco evtl. langsam`, 'warn');
         }
 
         // Phase 2: sequenziell DB-Save + Diff-Sammlung. SQLite WAL hat nur
@@ -347,7 +381,7 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
           if (r.status === 'rejected') {
             detailStats.errors++;
             const errMsg = (r.reason && r.reason.message) ? r.reason.message : String(r.reason);
-            logger.log(`  ❌ Detail-Scrape ${m.kuerzel_id}: ${errMsg}`, 'warn');
+            logger.log(`  ❌ Detail-Abfrage ${m.kuerzel_id}: ${errMsg}`, 'warn');
           } else {
             // scrapeDetail liefert { entries, expectedCount }; expectedCount =
             // "Anzahl Prüfungen: N" → Lösch-Schutz gegen Teil-Scrapes (#6).
@@ -360,7 +394,7 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
               detailStats.totalEntries += (ps.inserted + ps.updated);
               logger.log(`  ✓ ${m.kuerzel_id} → ${entries.length} Prüfung(en)`, 'info');
               if (ps.incomplete) {
-                logger.log(`  ⚠️  ${m.kuerzel_id}: Teil-Scrape erkannt (${ps.scrapedCount}/${ps.expectedCount}) — Lösch-Schutz aktiv, keine Prüfung gelöscht`, 'warn');
+                logger.log(`  ⚠️  ${m.kuerzel_id}: Teil-Abfrage erkannt (${ps.scrapedCount}/${ps.expectedCount}) — Lösch-Schutz aktiv, keine Prüfung gelöscht`, 'warn');
               }
               // Beim Voll-Refresh (wöchentlich ODER manuell): NEUE Prüfungen
               // die nicht von einem gradeChange-Push abgedeckt sind → eigener
@@ -439,7 +473,7 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
           : (reason === 'scheduled' && opts.isLastRunOfDay)
             ? ' (täglicher Voll-Refresh, letzter Lauf des Tages)'
             : (fullDetailRefresh ? ' (manueller Voll-Refresh)' : '');
-        logger.log(`📥 Absenz-Detail-Scrape für ${toScrapeAbs.length} Modul(e)${refreshLabelAbs} — parallel via Page-Pool`, 'info');
+        logger.log(`📥 Absenz-Detail-Abfrage für ${toScrapeAbs.length} Modul(e)${refreshLabelAbs} — parallel via Page-Pool`, 'info');
 
         // Phase 1: parallel feuern — der Page-Pool limited Concurrency intern.
         // Promise.allSettled, damit ein einzelner Fehler die Detail-Daten der
@@ -455,7 +489,7 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
           r.status === 'rejected' && /Timeout|MAX_WAIT/i.test((r.reason && r.reason.message) || '')
         ).length;
         if (absTimeouts >= 5) {
-          logger.log(`  ⚠️  ${absTimeouts} Absenz-Detail-Scrape-Timeouts — Tocco evtl. langsam`, 'warn');
+          logger.log(`  ⚠️  ${absTimeouts} Absenz-Detail-Abfrage-Timeouts — Tocco evtl. langsam`, 'warn');
         }
 
         // Phase 2: SEQUENZIELL DB-Save + Diff-Sammlung. SQLite WAL hat nur einen
@@ -466,7 +500,7 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
           if (r.status === 'rejected') {
             absenzDetailStats.errors++;
             const errMsg = (r.reason && r.reason.message) ? r.reason.message : String(r.reason);
-            logger.log(`  ❌ Absenz-Detail-Scrape ${m.kuerzel_code}: ${errMsg}`, 'warn');
+            logger.log(`  ❌ Absenz-Detail-Abfrage ${m.kuerzel_code}: ${errMsg}`, 'warn');
           } else {
             const { entries } = r.value;
             // Empty-Input NO-OP wird in saveLektionen behandelt (kein Delete,
@@ -543,7 +577,7 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
 
       const dur = ((Date.now() - startTs) / 1000).toFixed(1);
       logger.log(
-        `✅ Scrape fertig in ${dur}s — Noten: ${nStats.inserted} neu / ${nStats.updated} updated / ${nStats.changed} Note geändert. Stundenplan: ${sStats.inserted} neu / ${sStats.updated} updated / ${pruned} vergangen entfernt. Details: ${detailStats.modulesScraped} Modul(e) / ${detailStats.totalEntries} Prüfung(en)${detailStats.errors ? ' / ' + detailStats.errors + ' Fehler' : ''}. Absenzen: ${aStats.inserted} neu / ${aStats.updated} updated / ${absenzDetailStats.modulesScraped} Detail(s)${absenzDetailStats.errors ? ' / ' + absenzDetailStats.errors + ' Fehler' : ''}.`,
+        `✅ Abfrage fertig in ${dur}s — Noten: ${nStats.inserted} neu / ${nStats.updated} updated / ${nStats.changed} Note geändert. Stundenplan: ${sStats.inserted} neu / ${sStats.updated} updated / ${pruned} vergangen entfernt. Details: ${detailStats.modulesScraped} Modul(e) / ${detailStats.totalEntries} Prüfung(en)${detailStats.errors ? ' / ' + detailStats.errors + ' Fehler' : ''}. Absenzen: ${aStats.inserted} neu / ${aStats.updated} updated / ${absenzDetailStats.modulesScraped} Detail(s)${absenzDetailStats.errors ? ' / ' + absenzDetailStats.errors + ' Fehler' : ''}.`,
         'info'
       );
     } catch (err) {
@@ -552,8 +586,8 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
       // Clients — roher Exception-Text kann interne Hostnames/Pfade/Playwright-
       // Internals enthalten. Daher nur eine generische, nicht-sensitive Meldung in
       // state.lastError; der Volltext bleibt ausschliesslich im Server-Log.
-      state.lastError = 'Scrape fehlgeschlagen — Details im Server-Log';
-      logger.log('❌ Scrape-Fehler: ' + message, 'error');
+      state.lastError = 'Abfrage fehlgeschlagen — Details im Server-Log';
+      logger.log('❌ Abfrage-Fehler: ' + message, 'error');
     } finally {
       // finally enthält NUR Cleanup der immer laufen muss — kein return hier
       // (no-unsafe-finally). Die Post-Processing-Logik inkl. watchdogFired-Check
@@ -562,7 +596,12 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
       // DB-Singleton bleibt offen — wird nur beim Server-Shutdown geschlossen.
       // Browser sicher schließen (wird seit der Detail-Page-Erweiterung NICHT
       // mehr automatisch von runScrape geschlossen — Aufrufer-Verantwortung).
-      if (scraped && typeof scraped.closeBrowser === 'function') {
+      // REST-Pfad: scraped.closeBrowser ist ein no-op → der Browser gehört der
+      // loginBridge und wird hier via restBridge.close() geschlossen (genau an
+      // dieser finally-Stelle, nach dem Detail-Pass). Scraper-Pfad unverändert.
+      if (restBridge && typeof restBridge.close === 'function') {
+        try { await restBridge.close(); } catch (_) { /* swallow */ }
+      } else if (scraped && typeof scraped.closeBrowser === 'function') {
         try { await scraped.closeBrowser(); } catch (_) { /* swallow */ }
       }
     }
@@ -580,7 +619,7 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
       state.running = false;
       sse.setPhase(state, settings, null);
       sse.broadcastStatus(settings, state);
-      sse.broadcastSse('scrape_done', {
+      sse.broadcastDone({
         ok: !state.lastError,
         error: state.lastError,
         stats: state.lastStats,
@@ -590,7 +629,7 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
       try {
         if (state.lastError) {
           // escapeHtml — damit Fehlermeldungen mit <, >, & den HTML-Parser nicht kaputtmachen
-          bot.notify('❌ <b>Scrape-Fehler</b>\n<code>' + escapeHtml(String(state.lastError)) + '</code>');
+          bot.notify('❌ <b>Abfrage-Fehler</b>\n<code>' + escapeHtml(String(state.lastError)) + '</code>');
         } else {
           const gc = state.lastStats && state.lastStats.noten && state.lastStats.noten.gradeChanges;
           // Map<kuerzel_id, [changedEntries...]> — wird sowohl von Telegram
@@ -684,7 +723,10 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
         }
       } catch (_) { /* notify ist best-effort */ }
       scheduler.scheduleNext();
-      scheduler.scheduleWeeklyDetailRefresh();
+      // REST macht jeden Cycle Voll-Detail → der separate Wochen-Backstop ist
+      // redundant. Nur im Scraper-Modus armen (dort ist Weekly bei autoRun=aus
+      // der einzige garantierte Voll-Refresh).
+      if (s.dataSource !== 'rest') scheduler.scheduleWeeklyDetailRefresh();
     }
 
     return { triggered: true, result };

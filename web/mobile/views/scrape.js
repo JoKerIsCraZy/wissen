@@ -97,7 +97,7 @@ function renderScrapeCard(container) {
     sp.className = 'm-spinner-sm';
     btn.append(sp);
     const t = document.createElement('span');
-    t.textContent = 'Scrape läuft…';
+    t.textContent = 'Abfrage läuft…';
     btn.append(t);
   } else {
     const ic = document.createElement('span');
@@ -105,43 +105,11 @@ function renderScrapeCard(container) {
     ic.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 4 20 12 6 20 6 4"/></svg>';
     btn.append(ic);
     const t = document.createElement('span');
-    t.textContent = 'Jetzt scrapen';
+    t.textContent = 'Jetzt abfragen';
     btn.append(t);
   }
   btn.addEventListener('click', triggerScrape);
   card.append(btn);
-
-  // Option: alle Moduldetails mitscrapen — lebt direkt in der Scrape-Card
-  // statt in einem eigenen Fieldset. Der Wert wird in settingsState gehalten
-  // (gesetzt von drawSettings in settings.js), damit ein SSE-getriebenes
-  // Re-Render der Card die noch ungespeicherte Auswahl nicht verwirft.
-  // collectSettingsPayload liest aus settingsState, der Speichern-Button
-  // persistiert ihn via PATCH /api/settings.
-  const optState = (typeof settingsState !== 'undefined') ? settingsState : null;
-  if (optState) {
-    const opt = document.createElement('div');
-    opt.className = 'm-scrape__opt';
-    const tog = document.createElement('label');
-    tog.className = 'm-toggle';
-    const tLab = document.createElement('span');
-    tLab.className = 'm-toggle__label';
-    tLab.textContent = 'Alle Moduldetails mitscrapen';
-    const tCb = document.createElement('input');
-    tCb.type = 'checkbox';
-    tCb.checked = !!optState.manualScrapeFullDetails;
-    tCb.addEventListener('change', () => {
-      optState.manualScrapeFullDetails = tCb.checked;
-    });
-    const tSw = document.createElement('span');
-    tSw.className = 'm-switch';
-    tog.append(tLab, tCb, tSw);
-    const tHint = document.createElement('small');
-    tHint.className = 'm-scrape__opt-hint';
-    tHint.textContent = 'Zieht beim manuellen Scrape die Details aller Module ' +
-      'neu — sonst nur geänderte oder neue. Der Auto-Run ist davon nicht betroffen.';
-    opt.append(tog, tHint);
-    card.append(opt);
-  }
 
   // Progress (only while running)
   if (running) {
@@ -248,23 +216,23 @@ function formatElapsed(iso) {
 
 async function triggerScrape() {
   // Optimistisches Update — Pill schaltet sofort, der nächste Status-Event
-  // (SSE oder die /api/scrape-Response) korrigiert ggf.
+  // (SSE oder die /api/abfrage-Response) korrigiert ggf.
   scrapeState.status = Object.assign({}, scrapeState.status, {
     running: true, currentPhase: 'starting', phaseStartedAt: new Date().toISOString()
   });
   reRenderScrapeCardIfMounted();
   try {
-    const r = await apiFetch('/api/scrape', { method: 'POST', body: {} });
+    const r = await apiFetch('/api/abfrage', { method: 'POST', body: {} });
     if (r && r.triggered === false) {
       // 200 mit reason → server hat NICHT gestartet, optimistisches Update zurückrollen
       if (r.reason === 'already_running') {
-        toast('Scrape läuft bereits');
+        toast('Abfrage läuft bereits');
       } else if (r.reason === 'cooldown') {
         toast('Cooldown aktiv — bitte ' + (r.retryInSec || 60) + 's warten', 'err');
         scrapeState.status = Object.assign({}, scrapeState.status, { running: false });
         reRenderScrapeCardIfMounted();
       } else {
-        toast('Scrape nicht gestartet (' + (r.reason || 'unbekannt') + ')', 'err');
+        toast('Abfrage nicht gestartet (' + (r.reason || 'unbekannt') + ')', 'err');
         scrapeState.status = Object.assign({}, scrapeState.status, { running: false });
         reRenderScrapeCardIfMounted();
       }
@@ -272,7 +240,7 @@ async function triggerScrape() {
       fetchInitialStatus();
       return;
     }
-    toast('Scrape gestartet');
+    toast('Abfrage gestartet');
   } catch (e) {
     if (e.silent) return;
     // 429 cooldown response landet hier (apiFetch wirft bei 429)
@@ -280,6 +248,6 @@ async function triggerScrape() {
       running: false
     });
     reRenderScrapeCardIfMounted();
-    toast(e.message || 'Scrape-Start fehlgeschlagen', 'err');
+    toast(e.message || 'Abfrage-Start fehlgeschlagen', 'err');
   }
 }

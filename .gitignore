@@ -19,6 +19,9 @@ vapid.json
 # runtime / generated
 data/*
 !data/README.md
+
+# Tocco REST-Export (tocco-api-test.js) — enthält echte Noten/Namen, nie einchecken
+tocco-export/
 node_modules/
 npm-debug.log*
 yarn-debug.log*

@@ -14,7 +14,9 @@
 // Event types currently emitted by the server (src/sse.js + runScrape.js):
 //   - 'status'       → ApiStatus (initial push + on every state transition)
 //   - 'log'          → LogEntry  (every logger.log call)
-//   - 'scrape_done'  → ScrapeDonePayload
+//   - 'abfrage_done' → ScrapeDonePayload (kanonisch seit Phase 6A; der Server
+//                      feuert zusätzlich das alte 'scrape_done' — wir lauschen
+//                      bewusst nur auf EIN Event, sonst doppelter Refetch)
 //
 // The default `message` channel is also forwarded so callers using the
 // generic `onmessage` semantics still work.
@@ -27,7 +29,7 @@ import type { ApiStatus, LogEntry, ScrapeDonePayload } from './types';
 export interface SseEventMap {
 	status: ApiStatus;
 	log: LogEntry;
-	scrape_done: ScrapeDonePayload;
+	abfrage_done: ScrapeDonePayload;
 	/** Default channel — payload type is unknown until inspected. */
 	message: unknown;
 }

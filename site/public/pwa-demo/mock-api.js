@@ -300,7 +300,7 @@
     { method: 'GET',  re: /^\/api\/stats\/?$/,               handler: () => stats },
     { method: 'GET',  re: /^\/api\/stundenplan\/?$/,         handler: () => ({ rows: stundenplan }) },
     { method: 'POST', re: /^\/api\/stundenplan\/clear\/?$/,  handler: () => ({ ok: true }) },
-    { method: 'POST', re: /^\/api\/scrape\/?$/,              handler: () => ({ ok: true, durationMs: 14_200, neueNoten: 0, geaendert: 0 }) },
+    { method: 'POST', re: /^\/api\/(?:abfrage|scrape)\/?$/,  handler: () => ({ ok: true, durationMs: 14_200, neueNoten: 0, geaendert: 0 }) },
     { method: 'GET',  re: /^\/api\/logs\/?$/,                handler: () => ({ rows: [
       { ts: ISO(NOW - 1000 * 60 * 18), level: 'info', msg: 'Scrape-Cycle gestartet (manueller Trigger)' },
       { ts: ISO(NOW - 1000 * 60 * 17), level: 'info', msg: 'Microsoft-SSO Login OK' },

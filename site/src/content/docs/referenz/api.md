@@ -58,11 +58,12 @@ curl -H "Authorization: Bearer $API_TOKEN" \
 | `GET` | `/api/absenzen` | Absenzen-Übersicht aller Module + Stats (Ø-Anwesenheit, unter Minimum, Abwesenheiten gesamt) |
 | `GET` | `/api/absenzen/:code/termine` | Tagesliste (Lektionen mit Status) eines Moduls per `kuerzel_code` |
 
-### Scrape
+### Abfrage
 
 | Methode | Pfad | Beschreibung |
 |---|---|---|
-| `POST` | `/api/scrape` | Manuellen Scrape auslösen |
+| `POST` | `/api/abfrage` | Manuelle Abfrage auslösen (kanonisch) |
+| `POST` | `/api/scrape` | Deprecated Alias von `/api/abfrage` — identische Response. Sendet `Deprecation: true` + `Link: </api/abfrage>; rel="successor-version"`. |
 
 ### Live-Updates
 
@@ -123,13 +124,33 @@ curl -H "Authorization: Bearer $API_TOKEN" \
 
 ```javascript
 const es = new EventSource('/api/events?token=' + API_TOKEN);
-es.onmessage = (e) => {
-  const data = JSON.parse(e.data);
-  console.log('event:', data.type, data.payload);
-};
+
+// Generischer Status (Phase, running, lastRun …)
+es.addEventListener('status', (e) => {
+  const payload = JSON.parse(e.data);
+  console.log('status:', payload.currentPhase, payload.running);
+});
+
+// Lauf-Ende — wird unter BEIDEN Event-Namen gefeuert:
+//   abfrage_done (kanonisch) + scrape_done (deprecated Alias).
+// Beide tragen dasselbe Payload; ein Client lauscht nur auf EINEN davon.
+es.addEventListener('abfrage_done', (e) => {
+  const { ok, error, stats } = JSON.parse(e.data);
+  console.log('abfrage done:', ok, error, stats);
+});
+
+// Log-Zeilen (Level via SSE_LOG_LEVEL env gefiltert)
+es.addEventListener('log', (e) => console.log('log:', JSON.parse(e.data)));
 ```
 
-Event-Typen: `scrape:start`, `scrape:phase`, `scrape:done`, `note:new`, `note:changed`, `room:changed`.
+Event-Typen (im SSE-`event:`-Feld; das `data:`-Feld ist das rohe JSON-Payload):
+
+| Event | Payload | Bedeutung |
+|---|---|---|
+| `status` | `{ running, currentPhase, lastRun, nextRun, lastError, enabled, … }` | Status-/Phasen-Update |
+| `log` | `{ level, message, … }` | Log-Zeile |
+| `abfrage_done` | `{ ok, error, stats, finishedAt }` | Lauf-Ende (kanonisch) |
+| `scrape_done` | `{ ok, error, stats, finishedAt }` | Lauf-Ende (deprecated Alias von `abfrage_done`, identisches Payload) |
 
 ### Push registrieren
 
@@ -156,7 +177,7 @@ await fetch('/api/push/subscribe', {
 |---|---|
 | `/api/*` (Auth-Fehler) | 10 / 15 min, 50 / 6 h |
 | `/api/events` (Auth-Fehler) | 60 / 15 min |
-| `/api/scrape` | Implicit (single-flight) — gleichzeitige Aufrufe werden serialisiert |
+| `/api/abfrage` (+ Alias `/api/scrape`) | Implicit (single-flight) — gleichzeitige Aufrufe werden serialisiert |
 
 Siehe [Sicherheit](/konfiguration/sicherheit/#anti-brute-force-drei-schichten).
 

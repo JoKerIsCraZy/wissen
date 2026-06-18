@@ -60,6 +60,18 @@ function broadcastSse(type, data) {
   }
 }
 
+// Lauf-Ende-Broadcast unter BEIDEN Event-Typen: erst der neue/kanonische
+// `abfrage_done`, dann der alte/Alias `scrape_done`. So sehen sowohl bereits
+// migrierte Clients (web-svelte künftig) als auch die noch nicht migrierten
+// Frontends (web/mobile, pwa-demo, Telegram-Bot) das Done-Event ohne Bruch.
+// Beide Events landen im Ring-Buffer — ein Reconnect-Replay liefert einem
+// Client also beide. Das ist akzeptiert: der Done-Refetch ist idempotent,
+// deshalb braucht es im Backend kein Dedup.
+function broadcastDone(data) {
+  broadcastSse('abfrage_done', data);
+  broadcastSse('scrape_done', data);
+}
+
 // Replay-Hilfsfunktion für `/api/events`: liefert Events neuer als `lastId`.
 // Wird nur von events.js benutzt, wenn ein `Last-Event-ID`-Header beim
 // Reconnect ankommt.
@@ -108,6 +120,7 @@ module.exports = {
   sseClients,
   SSE_MAX_CLIENTS,
   broadcastSse,
+  broadcastDone,
   broadcastStatus,
   statusPayload,
   setPhase,

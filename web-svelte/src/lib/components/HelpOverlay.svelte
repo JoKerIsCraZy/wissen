@@ -19,7 +19,7 @@
     { keys: ['g', 'p'], label: 'Push' },
     { keys: ['g', 't'], label: 'Telegram' },
     { keys: ['/'],     label: 'Suche fokussieren' },
-    { keys: ['r'],     label: 'Scrape starten' },
+    { keys: ['r'],     label: 'Abfrage starten' },
     { keys: ['⌘', 'K'], label: 'Befehle' },
     { keys: ['⌘', 'L'], label: 'Logs umschalten' },
     { keys: ['⌘', '↵'], label: 'Settings speichern' },

@@ -215,7 +215,7 @@ function init({ state, settings, logger, runScrapeCycle }) {
       ? next.toLocaleString('de-DE', { weekday: 'short' })
       : `in ${Math.round(ms/60000)} min`;
     const absLabel = isLastRunOfDay ? ' · inkl. Absenz-Details (letzter Lauf des Tages)' : '';
-    logger.log(`⏰ Nächster Scrape: ${formatLocalDateTime(next)} (${friendly})${absLabel}`, 'info');
+    logger.log(`⏰ Nächste Abfrage: ${formatLocalDateTime(next)} (${friendly})${absLabel}`, 'info');
     // broadcastStatus wird von runScrapeCycle (sse) selbst getriggert; hier
     // nicht doppelt — der ursprüngliche Code hat das nach scheduleNext gemacht
     // damit /api/status sofort den nextRun zeigt.

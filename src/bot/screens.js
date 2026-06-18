@@ -163,7 +163,7 @@ async function screenModulDetail(kuerzelId) {
   } else {
     text += '<i>Keine Prüfungs-Details vorhanden.</i>\n';
     if (modul.detail_id) {
-      text += '<i>(Beim nächsten Scrape werden sie versucht zu laden.)</i>';
+      text += '<i>(Bei der nächsten Abfrage werden sie versucht zu laden.)</i>';
     } else {
       text += '<i>(Keine Detail-ID — Modul hat keine aufrufbare Detail-Seite.)</i>';
     }
@@ -466,7 +466,7 @@ async function screenStatus() {
       const phase = s.currentPhase || 'starting';
       const phaseLabel = PHASE_LABELS_DE[phase] || phase;
       const elapsed = elapsedSec(s.phaseStartedAt);
-      text += '🔄 <b>Scrape läuft</b>\n';
+      text += '🔄 <b>Abfrage läuft</b>\n';
       text += '   Phase: <b>' + escapeHtml(phaseLabel) + '</b>';
       if (elapsed != null) text += '  <i>(' + elapsed + 's)</i>';
       text += '\n';
@@ -534,21 +534,21 @@ async function screenStatus() {
 // running=true → Phase + Sekunden seit Phasen-Start.
 // running=false → finale Zusammenfassung (oder Fehler).
 function buildScrapeLiveText(s) {
-  if (!s) return '🔄 <b>Scrape gestartet</b>';
+  if (!s) return '🔄 <b>Abfrage gestartet</b>';
   if (s.running) {
     const phase = s.currentPhase || 'starting';
     const phaseLabel = PHASE_LABELS_DE[phase] || phase;
     const elapsed = elapsedSec(s.phaseStartedAt);
-    let text = '🔄 <b>Scrape läuft…</b>\n\n';
+    let text = '🔄 <b>Abfrage läuft…</b>\n\n';
     text += '<b>Phase:</b> ' + escapeHtml(phaseLabel);
     if (elapsed != null) text += '  <i>(' + elapsed + 's)</i>';
     return text;
   }
   // Fertig
   if (s.lastError) {
-    return '❌ <b>Scrape-Fehler</b>\n<code>' + escapeHtml(safeErrMsg(s.lastError)) + '</code>';
+    return '❌ <b>Abfrage-Fehler</b>\n<code>' + escapeHtml(safeErrMsg(s.lastError)) + '</code>';
   }
-  let text = '✅ <b>Scrape fertig</b>\n\n';
+  let text = '✅ <b>Abfrage fertig</b>\n\n';
   if (s.lastRun) text += '<i>' + escapeHtml(formatDateTime(s.lastRun)) + '</i>\n\n';
   const ls = s.lastStats;
   if (ls) {
@@ -651,7 +651,7 @@ function startScrapePoll(chatId, messageId) {
 
 async function screenScrape() {
   if (!state.triggerScrape) {
-    return { text: '⚠️ Scrape-Trigger nicht verfügbar.', keyboard: simpleNav() };
+    return { text: '⚠️ Abfrage-Trigger nicht verfügbar.', keyboard: simpleNav() };
   }
   try {
     const r = await state.triggerScrape();
@@ -659,14 +659,14 @@ async function screenScrape() {
       // Bereits aktiv → trotzdem Live-Tracking auf existierende Session
       // (das wird nach Render gestartet via showScrapeProgressFor)
       return {
-        text: '⏳ <b>Bereits ein Scrape aktiv</b>'
+        text: '⏳ <b>Bereits eine Abfrage aktiv</b>'
             + (r.reason ? '\n<i>' + escapeHtml(r.reason) + '</i>' : ''),
         keyboard: okMenuKb(),
         startLivePoll: true
       };
     }
     return {
-      text: '🔄 <b>Scrape gestartet</b>',
+      text: '🔄 <b>Abfrage gestartet</b>',
       keyboard: okMenuKb(),
       startLivePoll: true
     };

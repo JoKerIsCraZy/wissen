@@ -60,7 +60,7 @@
     <span class="kbd-hint__label">Befehle</span>
   </button>
 
-  <button class="btn btn--primary btn--sm scrape-btn" type="button" onclick={handleScrape} title="Jetzt scrapen (R)" aria-label="Scrape">
+  <button class="btn btn--primary btn--sm scrape-btn" type="button" onclick={handleScrape} title="Jetzt abfragen (R)" aria-label="Abfragen">
     <svg class="scrape-btn__icon-play" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <polygon points="6 4 20 12 6 20 6 4" />
     </svg>
@@ -68,7 +68,7 @@
       <polyline points="23 4 23 10 17 10"/>
       <path d="M20.49 15A9 9 0 1 1 17.65 5.51L23 10"/>
     </svg>
-    <span class="scrape-btn__label">Scrape</span>
+    <span class="scrape-btn__label">Abfragen</span>
   </button>
 </header>
 
@@ -249,7 +249,7 @@
      Mobile compaction
      - Hide Cmd+K hint chip entirely (keyboard shortcut isn't usable
        on touch devices)
-     - Hide "Scrape" label, show refresh icon only
+     - Hide "Abfragen" label, show refresh icon only
      - Shrink lastrun font and add safe-area padding on top
      ============================================================ */
   @media (max-width: 720px) {

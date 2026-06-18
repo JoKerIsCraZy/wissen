@@ -1,13 +1,14 @@
 <script lang="ts">
   /**
-   * /settings — Section-style Settings.
+   * /settings — Card-basierte Settings im Mobile-Look, auf Desktop-Breite
+   * als Bento-Grid arrangiert.
    *
-   * Sections: Anmeldung, Automatik, Telegram, Erweitert.
-   * Save via Speichern-Button oder Cmd/Ctrl+Enter aus jedem Eingabefeld.
-   * DB-Reset: 2-stage confirm (kein native confirm()).
+   * Gruppierte Karten: Anmeldung, Automatik, Telegram, Erweitert,
+   * Datenbank. Save via Speichern-Button oder Cmd/Ctrl+Enter aus jedem Feld.
+   * DB-Reset: 2-stufiges Confirm (kein natives confirm()).
    *
-   * Auf Server-Seite filtert filterUiPatch() Credentials weg, wenn
-   * ALLOW_UI_CREDENTIALS=false ist. URLs/port sind nicht patchable.
+   * Server-seitig filtert filterUiPatch() Credentials weg, wenn
+   * ALLOW_UI_CREDENTIALS=false ist. URLs/Port sind nicht patchable.
    */
 
   import { onMount } from 'svelte';
@@ -50,7 +51,6 @@
   let formMsPassword = $state('');
   let formUserPk = $state('');
   let formAutoRun = $state(false);
-  let formManualScrapeFullDetails = $state(false);
   let formScheduleMode = $state<ScheduleMode>('interval');
   let formScheduleDays = $state<number[]>([]);
   let formIntervalMinutes = $state(60);
@@ -65,8 +65,7 @@
   let formPort = $state(0);
   let formHeadless = $state(true);
 
-  // Telegram section open state — opened on first hydrate if enabled or token
-  // is set; otherwise stays closed. User can toggle freely afterward.
+  // Telegram section open state — defaults to closed; user opens it on demand.
   let telegramOpen = $state(false);
   // Erweitert nutzt dasselbe Collapse-Muster wie Telegram (eine Disclosure-
   // Sprache statt nativem <details> + Chevron), Default zu.
@@ -89,14 +88,12 @@
   }
 
   function hydrate(view: SettingsView): void {
-    const isFirstLoad = current === null;
     current = view;
     patch = {};
     formMsEmail = view.msEmail ?? '';
     formMsPassword = '';
     formUserPk = view.userPk ?? '';
     formAutoRun = !!view.autoRun;
-    formManualScrapeFullDetails = !!view.manualScrapeFullDetails;
     formScheduleMode = view.scheduleMode === 'weekly' ? 'weekly' : 'interval';
     formScheduleDays = Array.isArray(view.scheduleDays) ? [...view.scheduleDays] : [];
     formIntervalMinutes = view.intervalMinutes || 60;
@@ -111,11 +108,6 @@
     formSlowMo = view.slowMo ?? 0;
     formPort = view.port ?? 0;
     formHeadless = !!view.headless;
-    // Open Telegram section only on initial load — never collapse/auto-open
-    // again on subsequent saves so user's manual collapse stays sticky.
-    if (isFirstLoad && (view.telegramEnabled || view.telegramTokenSet)) {
-      telegramOpen = true;
-    }
   }
 
   /** Build PATCH payload from form state vs current. Empty secrets dropped. */
@@ -125,9 +117,6 @@
 
     // Always-patchable
     if (formAutoRun !== current.autoRun) p.autoRun = formAutoRun;
-    if (formManualScrapeFullDetails !== current.manualScrapeFullDetails) {
-      p.manualScrapeFullDetails = formManualScrapeFullDetails;
-    }
     if (formScheduleMode !== current.scheduleMode) p.scheduleMode = formScheduleMode;
     if (!arraysEqualNum(formScheduleDays, current.scheduleDays)) {
       p.scheduleDays = [...formScheduleDays].sort((a, b) => a - b);
@@ -203,6 +192,7 @@
       saving = false;
     }
   }
+
 
   // Cmd/Ctrl+Enter speichert. Hot path on every keystroke — keep the early
   // exits cheapest-first (key + modifier) so non-shortcut keys cost ~nothing.
@@ -331,7 +321,7 @@
         fullDbResetError = null;
         pushToast(
           'success',
-          `✓ Datenbank zurückgesetzt · ${n} Zeile${n === 1 ? '' : 'n'} gelöscht · jetzt neu scrapen`
+          `✓ Datenbank zurückgesetzt · ${n} Zeile${n === 1 ? '' : 'n'} gelöscht · jetzt neu abfragen`
         );
         if (typeof window !== 'undefined') window.dispatchEvent(new Event('wissen:scrape'));
       } catch (e) {
@@ -372,464 +362,438 @@
 {#if loading}
   <div class="loading mono">lädt…</div>
 {:else if current}
-  <!-- ============ Anmeldung ============ -->
-  <section class="sec">
-    <header class="sec__head">
-      <h2 class="sec__title">Anmeldung</h2>
-      <span class="sec__hint">Microsoft-Konto, mit dem Tocco geöffnet wird.</span>
-    </header>
+  <div class="settings-grid">
+    <!-- ============ Anmeldung ============ -->
+    <section class="card">
+      <header class="card__head">
+        <h2 class="card__title">Anmeldung</h2>
+        <span class="card__hint">Microsoft-Konto, mit dem Tocco geöffnet wird.</span>
+      </header>
 
-    <div class="rows">
-      <div class="row">
-        <label for="msEmail">MS-Email</label>
-        <input
-          id="msEmail"
-          type="email"
-          autocomplete="off"
-          placeholder="name@schule.ch"
-          bind:value={formMsEmail}
-          disabled={!allowUiCreds}
-        />
-        {#if !allowUiCreds}
-          <p class="hint">Wert nur via .env änderbar.</p>
-        {/if}
-      </div>
-
-      <div class="row">
-        <label for="msPassword">MS-Passwort</label>
-        <input
-          id="msPassword"
-          type="password"
-          autocomplete="new-password"
-          placeholder={current.passwordSet ? '••• (gesetzt, unverändert)' : 'Passwort setzen'}
-          bind:value={formMsPassword}
-          disabled={!allowUiCreds}
-        />
-        <p class="hint">Wird nie zurückgegeben, nur einmal speichern.</p>
-      </div>
-
-      <div class="row">
-        <label for="userPk">Tocco User-PK</label>
-        <input
-          id="userPk"
-          type="text"
-          autocomplete="off"
-          placeholder="z.B. 48391"
-          bind:value={formUserPk}
-          disabled={!allowUiCreds}
-        />
-        <p class="hint">
-          Primärschlüssel deines Tocco-Benutzers. Steht in der URL nach dem Login als ?key=… (Network-Tab).
-        </p>
-      </div>
-    </div>
-  </section>
-
-  <!-- ============ Automatik ============ -->
-  <section class="sec">
-    <header class="sec__head">
-      <h2 class="sec__title">Automatik</h2>
-      <span class="sec__hint">Auto-Run pollt nach Plan, sonst nur manuell.</span>
-    </header>
-
-    <div class="rows">
-      <div class="row row--inline">
-        <div class="row__main">
-          <label for="autoRun">Auto-Run aktivieren</label>
-          <p class="hint">Startet Scrape nach Zeitplan.</p>
+      <div class="rows">
+        <div class="row">
+          <label for="msEmail">MS-Email</label>
+          <input
+            id="msEmail"
+            type="email"
+            autocomplete="off"
+            placeholder="name@schule.ch"
+            bind:value={formMsEmail}
+            disabled={!allowUiCreds}
+          />
+          {#if !allowUiCreds}
+            <p class="hint">Wert nur via .env änderbar.</p>
+          {/if}
         </div>
-        <button
-          type="button"
-          class="toggle"
-          role="switch"
-          aria-checked={formAutoRun}
-          aria-label="Auto-Run aktivieren"
-          onclick={() => (formAutoRun = !formAutoRun)}
-          onkeydown={(e) => onToggleKeydown(e, () => (formAutoRun = !formAutoRun))}
-          id="autoRun"
-        >
-          <span class="toggle__track" class:toggle__track--on={formAutoRun}>
-            <span class="toggle__thumb" class:toggle__thumb--on={formAutoRun}></span>
-          </span>
-        </button>
-      </div>
 
-      <div class="row row--inline">
-        <div class="row__main">
-          <label for="manualScrapeFullDetails">Manuell: alle Moduldetails</label>
+        <div class="row">
+          <label for="msPassword">MS-Passwort</label>
+          <input
+            id="msPassword"
+            type="password"
+            autocomplete="new-password"
+            placeholder={current.passwordSet ? '••• (gesetzt, unverändert)' : 'Passwort setzen'}
+            bind:value={formMsPassword}
+            disabled={!allowUiCreds}
+          />
+          <p class="hint">Wird nie zurückgegeben, nur einmal speichern.</p>
+        </div>
+
+        <div class="row">
+          <label for="userPk">Tocco User-PK</label>
+          <input
+            id="userPk"
+            type="text"
+            autocomplete="off"
+            placeholder="z.B. 48391"
+            bind:value={formUserPk}
+            disabled={!allowUiCreds}
+          />
           <p class="hint">
-            Manueller Scrape zieht die Details aller Module neu, statt nur
-            geänderter. Auto-Run bleibt unverändert.
+            Primärschlüssel deines Tocco-Benutzers. Steht in der URL nach dem Login als ?key=… (Network-Tab).
           </p>
         </div>
-        <button
-          type="button"
-          class="toggle"
-          role="switch"
-          aria-checked={formManualScrapeFullDetails}
-          aria-label="Manueller Scrape: alle Moduldetails mitscrapen"
-          onclick={() => (formManualScrapeFullDetails = !formManualScrapeFullDetails)}
-          onkeydown={(e) =>
-            onToggleKeydown(e, () => (formManualScrapeFullDetails = !formManualScrapeFullDetails))}
-          id="manualScrapeFullDetails"
-        >
-          <span
-            class="toggle__track"
-            class:toggle__track--on={formManualScrapeFullDetails}
+      </div>
+    </section>
+
+    <!-- ============ Automatik (spans wider — most content) ============ -->
+    <section class="card card--span">
+      <header class="card__head">
+        <h2 class="card__title">Automatik</h2>
+        <span class="card__hint">Auto-Run pollt nach Plan, sonst nur manuell.</span>
+      </header>
+
+      <div class="rows">
+        <div class="row row--inline">
+          <div class="row__main">
+            <label for="autoRun">Auto-Run aktivieren</label>
+            <p class="hint">Startet Abfrage nach Zeitplan.</p>
+          </div>
+          <button
+            type="button"
+            class="toggle"
+            role="switch"
+            aria-checked={formAutoRun}
+            aria-label="Auto-Run aktivieren"
+            onclick={() => (formAutoRun = !formAutoRun)}
+            onkeydown={(e) => onToggleKeydown(e, () => (formAutoRun = !formAutoRun))}
+            id="autoRun"
           >
-            <span
-              class="toggle__thumb"
-              class:toggle__thumb--on={formManualScrapeFullDetails}
-            ></span>
-          </span>
-        </button>
-      </div>
-
-      <div class="row">
-        <fieldset class="row__fieldset">
-          <legend class="row__label">Modus</legend>
-          <div class="mode-switch" role="radiogroup" aria-label="Scheduler-Modus">
-            <label class="mode-opt">
-              <input
-                type="radio"
-                name="scheduleMode"
-                value="interval"
-                checked={formScheduleMode === 'interval'}
-                onchange={() => (formScheduleMode = 'interval')}
-              />
-              <span>Intervall</span>
-            </label>
-            <label class="mode-opt">
-              <input
-                type="radio"
-                name="scheduleMode"
-                value="weekly"
-                checked={formScheduleMode === 'weekly'}
-                onchange={() => (formScheduleMode = 'weekly')}
-              />
-              <span>Wochenplan</span>
-            </label>
-          </div>
-        </fieldset>
-      </div>
-
-      <!-- Wochentage gelten in BEIDEN Modi (siehe src/settings.js: "beide
-           Modi: 0=So .. 6=Sa"). Im Intervall-Modus engt das die Tage ein,
-           an denen der Auto-Run überhaupt feuert; im Wochenplan-Modus
-           definiert es zusammen mit den Uhrzeiten das Schedule-Grid. -->
-      <div class="row">
-        <fieldset class="row__fieldset">
-          <legend class="row__label">Wochentage</legend>
-          <div class="day-chips" role="group" aria-label="Wochentage">
-            {#each DAY_CHIPS as chip (chip.value)}
-              <button
-                type="button"
-                class="day-chip"
-                class:day-chip--on={formScheduleDays.includes(chip.value)}
-                aria-pressed={formScheduleDays.includes(chip.value)}
-                onclick={() => toggleDay(chip.value)}
-              >
-                {chip.label}
-              </button>
-            {/each}
-          </div>
-        </fieldset>
-      </div>
-
-      {#if formScheduleMode === 'interval'}
-        <div class="row">
-          <label for="intervalMinutes">Intervall</label>
-          <div class="slider-wrap">
-            <input
-              id="intervalMinutes"
-              type="range"
-              min="5"
-              max="1440"
-              step="5"
-              bind:value={formIntervalMinutes}
-            />
-            <span class="slider-label mono">{intervalLabel}</span>
-          </div>
+            <span class="toggle__track" class:toggle__track--on={formAutoRun}>
+              <span class="toggle__thumb" class:toggle__thumb--on={formAutoRun}></span>
+            </span>
+          </button>
         </div>
 
-        <div class="row">
-          <span class="row__label">Zeitfenster</span>
-          <div class="time-pair">
-            <input type="time" bind:value={formIntervalTimeFrom} aria-label="von" />
-            <span class="time-pair__sep mono">bis</span>
-            <input type="time" bind:value={formIntervalTimeTo} aria-label="bis" />
-          </div>
-          <p class="hint">Ausserhalb pausiert Auto-Run.</p>
-        </div>
-      {:else}
-        <div class="row">
-          <span class="row__label">Uhrzeiten</span>
-          <div class="time-list">
-            {#each formScheduleTimes as t, i (i)}
-              <div class="time-row">
-                <input
-                  type="time"
-                  value={t}
-                  oninput={(e) => updateScheduleTime(i, (e.currentTarget as HTMLInputElement).value)}
-                  aria-label="Uhrzeit {i + 1}"
-                />
-                <button
-                  type="button"
-                  class="time-remove"
-                  aria-label="Uhrzeit entfernen"
-                  onclick={() => removeScheduleTime(i)}
-                >
-                  ×
-                </button>
+        <div class="auto-grid">
+          <div class="row">
+            <fieldset class="row__fieldset">
+              <legend class="row__label">Modus</legend>
+              <div class="mode-switch" role="radiogroup" aria-label="Scheduler-Modus">
+                <label class="mode-opt">
+                  <input
+                    type="radio"
+                    name="scheduleMode"
+                    value="interval"
+                    checked={formScheduleMode === 'interval'}
+                    onchange={() => (formScheduleMode = 'interval')}
+                  />
+                  <span>⏱ Intervall</span>
+                </label>
+                <label class="mode-opt">
+                  <input
+                    type="radio"
+                    name="scheduleMode"
+                    value="weekly"
+                    checked={formScheduleMode === 'weekly'}
+                    onchange={() => (formScheduleMode = 'weekly')}
+                  />
+                  <span>📅 Wochenplan</span>
+                </label>
               </div>
-            {/each}
-            <button type="button" class="time-add" onclick={addScheduleTime}>
-              + Uhrzeit hinzufügen
+            </fieldset>
+          </div>
+
+          <!-- Wochentage gelten in BEIDEN Modi (siehe src/settings.js: "beide
+               Modi: 0=So .. 6=Sa"). Im Intervall-Modus engt das die Tage ein,
+               an denen der Auto-Run überhaupt feuert; im Wochenplan-Modus
+               definiert es zusammen mit den Uhrzeiten das Schedule-Grid. -->
+          <div class="row">
+            <fieldset class="row__fieldset">
+              <legend class="row__label">Wochentage</legend>
+              <div class="day-chips" role="group" aria-label="Wochentage">
+                {#each DAY_CHIPS as chip (chip.value)}
+                  <button
+                    type="button"
+                    class="day-chip"
+                    class:day-chip--on={formScheduleDays.includes(chip.value)}
+                    aria-pressed={formScheduleDays.includes(chip.value)}
+                    onclick={() => toggleDay(chip.value)}
+                  >
+                    {chip.label}
+                  </button>
+                {/each}
+              </div>
+            </fieldset>
+          </div>
+        </div>
+
+        {#if formScheduleMode === 'interval'}
+          <div class="row">
+            <label for="intervalMinutes">Intervall</label>
+            <div class="slider-wrap">
+              <input
+                id="intervalMinutes"
+                type="range"
+                min="5"
+                max="1440"
+                step="5"
+                bind:value={formIntervalMinutes}
+              />
+              <span class="slider-label mono">{intervalLabel}</span>
+            </div>
+          </div>
+
+          <div class="row">
+            <span class="row__label">Zeitfenster</span>
+            <div class="time-pair">
+              <input type="time" bind:value={formIntervalTimeFrom} aria-label="von" />
+              <span class="time-pair__sep mono">bis</span>
+              <input type="time" bind:value={formIntervalTimeTo} aria-label="bis" />
+            </div>
+            <p class="hint">Ausserhalb pausiert Auto-Run.</p>
+          </div>
+        {:else}
+          <div class="row">
+            <span class="row__label">Uhrzeiten</span>
+            <div class="time-list">
+              {#each formScheduleTimes as t, i (i)}
+                <div class="time-row">
+                  <input
+                    type="time"
+                    value={t}
+                    oninput={(e) => updateScheduleTime(i, (e.currentTarget as HTMLInputElement).value)}
+                    aria-label="Uhrzeit {i + 1}"
+                  />
+                  <button
+                    type="button"
+                    class="time-remove"
+                    aria-label="Uhrzeit entfernen"
+                    onclick={() => removeScheduleTime(i)}
+                  >
+                    ×
+                  </button>
+                </div>
+              {/each}
+              <button type="button" class="time-add" onclick={addScheduleTime}>
+                + Uhrzeit hinzufügen
+              </button>
+            </div>
+          </div>
+        {/if}
+      </div>
+    </section>
+
+    <!-- ============ Telegram ============ -->
+    <section class="card">
+      <button
+        type="button"
+        class="card__head card__head--btn"
+        aria-expanded={telegramOpen}
+        aria-controls="telegram-section"
+        onclick={() => (telegramOpen = !telegramOpen)}
+      >
+        <h2 class="card__title">
+          <svg
+            class="card__chevron"
+            class:card__chevron--open={telegramOpen}
+            viewBox="0 0 24 24"
+            width="10"
+            height="10"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <polyline points="9 6 15 12 9 18" />
+          </svg>
+          Telegram
+        </h2>
+        <span class="card__hint">
+          {current.telegramTokenSet ? 'Token gesetzt' : 'Optional'}
+          {current.telegramEnabled ? ' · aktiv' : ''}
+        </span>
+      </button>
+
+      {#if telegramOpen}
+        <div id="telegram-section" class="rows">
+          <div class="row row--inline">
+            <div class="row__main">
+              <label for="tgEnabled">Bot aktivieren</label>
+              <p class="hint">Erwartet Token + erlaubte User-ID.</p>
+            </div>
+            <button
+              type="button"
+              class="toggle"
+              role="switch"
+              aria-checked={formTelegramEnabled}
+              aria-label="Telegram-Bot aktivieren"
+              onclick={() => (formTelegramEnabled = !formTelegramEnabled)}
+              onkeydown={(e) => onToggleKeydown(e, () => (formTelegramEnabled = !formTelegramEnabled))}
+              id="tgEnabled"
+            >
+              <span class="toggle__track" class:toggle__track--on={formTelegramEnabled}>
+                <span class="toggle__thumb" class:toggle__thumb--on={formTelegramEnabled}></span>
+              </span>
+            </button>
+          </div>
+
+          <div class="row">
+            <label for="tgToken">Bot-Token</label>
+            <input
+              id="tgToken"
+              type="password"
+              autocomplete="off"
+              placeholder={current.telegramTokenSet ? '••• (gesetzt, unverändert)' : '123456:ABC-DEF...'}
+              bind:value={formTelegramToken}
+              disabled={!allowUiCreds}
+            />
+            <p class="hint">
+              1. Bei @BotFather → /newbot → Anweisungen folgen.
+              2. Token kopieren.
+              3. Hier einfügen.
+            </p>
+          </div>
+
+          <div class="row">
+            <label for="tgUid">Erlaubte User-ID</label>
+            <input
+              id="tgUid"
+              type="number"
+              min="1"
+              placeholder="123456789"
+              bind:value={formTelegramAllowedUserId}
+            />
+            <p class="hint">Eigene User-ID via @userinfobot herausfinden.</p>
+          </div>
+        </div>
+      {/if}
+    </section>
+
+    <!-- ============ Erweitert ============ -->
+    <section class="card">
+      <button
+        type="button"
+        class="card__head card__head--btn"
+        aria-expanded={advancedOpen}
+        aria-controls="advanced-section"
+        onclick={() => (advancedOpen = !advancedOpen)}
+      >
+        <h2 class="card__title">
+          <svg
+            class="card__chevron"
+            class:card__chevron--open={advancedOpen}
+            viewBox="0 0 24 24"
+            width="10"
+            height="10"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <polyline points="9 6 15 12 9 18" />
+          </svg>
+          Erweitert
+        </h2>
+        <span class="card__hint">Browser- und Server-Internas.</span>
+      </button>
+
+      {#if advancedOpen}
+        <div id="advanced-section" class="rows">
+          <div class="row">
+            <label for="baseUrl">Base-URL</label>
+            <input id="baseUrl" type="url" value={formBaseUrl} disabled />
+            <p class="hint">URLs sind via .env festgelegt.</p>
+          </div>
+
+          <div class="row">
+            <label for="slowMo">slowMo (ms)</label>
+            <input id="slowMo" type="number" min="0" max="2000" step="50" bind:value={formSlowMo} />
+            <p class="hint">Verzögerung pro Browser-Aktion. 0 = aus.</p>
+          </div>
+
+          <div class="row">
+            <label for="port">Port</label>
+            <input id="port" type="number" value={formPort} disabled />
+            <p class="hint">Server-Port wird via .env gesetzt.</p>
+          </div>
+
+          <div class="row row--inline">
+            <div class="row__main">
+              <label for="headless">Headless</label>
+              <p class="hint">Browser ohne sichtbares Fenster starten.</p>
+            </div>
+            <button
+              type="button"
+              class="toggle"
+              role="switch"
+              aria-checked={formHeadless}
+              aria-label="Headless-Modus"
+              onclick={() => (formHeadless = !formHeadless)}
+              onkeydown={(e) => onToggleKeydown(e, () => (formHeadless = !formHeadless))}
+              id="headless"
+            >
+              <span class="toggle__track" class:toggle__track--on={formHeadless}>
+                <span class="toggle__thumb" class:toggle__thumb--on={formHeadless}></span>
+              </span>
             </button>
           </div>
         </div>
       {/if}
-    </div>
-  </section>
+    </section>
 
-  <!-- ============ Telegram ============ -->
-  <section class="sec">
-    <button
-      type="button"
-      class="sec__head sec__head--clickable sec__head--btn"
-      aria-expanded={telegramOpen}
-      aria-controls="telegram-section"
-      onclick={() => (telegramOpen = !telegramOpen)}
-    >
-      <h2 class="sec__title">
-        <svg
-          class="sec__chevron"
-          class:sec__chevron--open={telegramOpen}
-          viewBox="0 0 24 24"
-          width="10"
-          height="10"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.5"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <polyline points="9 6 15 12 9 18" />
-        </svg>
-        Telegram
-      </h2>
-      <span class="sec__hint">
-        {current.telegramTokenSet ? 'Token gesetzt' : 'Optional'}
-        {current.telegramEnabled ? ' · aktiv' : ''}
-      </span>
-    </button>
+    <!-- ============ Danger zone (full-bleed) ============ -->
+    <section class="card card--danger card--span">
+      <header class="card__head">
+        <h2 class="card__title">Datenbank</h2>
+        <span class="card__hint">Daten werden bei der nächsten Abfrage neu geladen. Push-Abos &amp; Einstellungen bleiben erhalten.</span>
+      </header>
 
-    {#if telegramOpen}
-      <div id="telegram-section" class="rows">
-        <div class="row row--inline">
-          <div class="row__main">
-            <label for="tgEnabled">Bot aktivieren</label>
-            <p class="hint">Erwartet Token + erlaubte User-ID.</p>
-          </div>
-          <button
-            type="button"
-            class="toggle"
-            role="switch"
-            aria-checked={formTelegramEnabled}
-            aria-label="Telegram-Bot aktivieren"
-            onclick={() => (formTelegramEnabled = !formTelegramEnabled)}
-            onkeydown={(e) => onToggleKeydown(e, () => (formTelegramEnabled = !formTelegramEnabled))}
-            id="tgEnabled"
-          >
-            <span class="toggle__track" class:toggle__track--on={formTelegramEnabled}>
-              <span class="toggle__thumb" class:toggle__thumb--on={formTelegramEnabled}></span>
-            </span>
-          </button>
-        </div>
-
+      <div class="danger-grid">
+        <!-- Leichter Reset: nur Stundenplan. 2-Stufen-Confirm + Inline-Fehler. -->
         <div class="row">
-          <label for="tgToken">Bot-Token</label>
-          <input
-            id="tgToken"
-            type="password"
-            autocomplete="off"
-            placeholder={current.telegramTokenSet ? '••• (gesetzt, unverändert)' : '123456:ABC-DEF...'}
-            bind:value={formTelegramToken}
-            disabled={!allowUiCreds}
-          />
-          <p class="hint">
-            1. Bei @BotFather → /newbot → Anweisungen folgen.
-            2. Token kopieren.
-            3. Hier einfügen.
-          </p>
-        </div>
-
-        <div class="row">
-          <label for="tgUid">Erlaubte User-ID</label>
-          <input
-            id="tgUid"
-            type="number"
-            min="1"
-            placeholder="123456789"
-            bind:value={formTelegramAllowedUserId}
-          />
-          <p class="hint">Eigene User-ID via @userinfobot herausfinden.</p>
-        </div>
-      </div>
-    {/if}
-  </section>
-
-  <!-- ============ Erweitert ============ -->
-  <section class="sec">
-    <button
-      type="button"
-      class="sec__head sec__head--clickable sec__head--btn"
-      aria-expanded={advancedOpen}
-      aria-controls="advanced-section"
-      onclick={() => (advancedOpen = !advancedOpen)}
-    >
-      <h2 class="sec__title">
-        <svg
-          class="sec__chevron"
-          class:sec__chevron--open={advancedOpen}
-          viewBox="0 0 24 24"
-          width="10"
-          height="10"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.5"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <polyline points="9 6 15 12 9 18" />
-        </svg>
-        Erweitert
-      </h2>
-      <span class="sec__hint">Browser- und Server-Internas.</span>
-    </button>
-
-    {#if advancedOpen}
-      <div id="advanced-section" class="rows">
-        <div class="row">
-          <label for="baseUrl">Base-URL</label>
-          <input id="baseUrl" type="url" value={formBaseUrl} disabled />
-          <p class="hint">URLs sind via .env festgelegt.</p>
-        </div>
-
-        <div class="row">
-          <label for="slowMo">slowMo (ms)</label>
-          <input id="slowMo" type="number" min="0" max="2000" step="50" bind:value={formSlowMo} />
-          <p class="hint">Verzögerung pro Browser-Aktion. 0 = aus.</p>
-        </div>
-
-        <div class="row">
-          <label for="port">Port</label>
-          <input id="port" type="number" value={formPort} disabled />
-          <p class="hint">Server-Port wird via .env gesetzt.</p>
-        </div>
-
-        <div class="row row--inline">
-          <div class="row__main">
-            <label for="headless">Headless</label>
-            <p class="hint">Browser ohne sichtbares Fenster starten.</p>
-          </div>
-          <button
-            type="button"
-            class="toggle"
-            role="switch"
-            aria-checked={formHeadless}
-            aria-label="Headless-Modus"
-            onclick={() => (formHeadless = !formHeadless)}
-            onkeydown={(e) => onToggleKeydown(e, () => (formHeadless = !formHeadless))}
-            id="headless"
-          >
-            <span class="toggle__track" class:toggle__track--on={formHeadless}>
-              <span class="toggle__thumb" class:toggle__thumb--on={formHeadless}></span>
-            </span>
-          </button>
-        </div>
-      </div>
-    {/if}
-  </section>
-
-  <!-- ============ Danger zone ============ -->
-  <section class="sec sec--danger">
-    <header class="sec__head">
-      <h2 class="sec__title">Datenbank</h2>
-      <span class="sec__hint">Daten werden beim nächsten Scrape neu geladen. Push-Abos &amp; Einstellungen bleiben erhalten.</span>
-    </header>
-
-    <div class="rows">
-      <!-- Leichter Reset: nur Stundenplan. 2-Stufen-Confirm + Inline-Fehler. -->
-      <div class="row">
-        <div class="db-reset" aria-live="polite">
-          <button
-            type="button"
-            class="btn-danger"
-            class:btn-danger--confirming={dbResetState === 'confirming'}
-            disabled={dbResetState === 'busy'}
-            onclick={() => void onDbReset()}
-          >
-            {#if dbResetState === 'idle'}
-              Stundenplan zurücksetzen
-            {:else if dbResetState === 'confirming'}
-              Wirklich löschen?
-            {:else}
-              Lösche…
+          <div class="db-reset" aria-live="polite">
+            <button
+              type="button"
+              class="btn-danger"
+              class:btn-danger--confirming={dbResetState === 'confirming'}
+              disabled={dbResetState === 'busy'}
+              onclick={() => void onDbReset()}
+            >
+              {#if dbResetState === 'idle'}
+                Stundenplan zurücksetzen
+              {:else if dbResetState === 'confirming'}
+                Wirklich löschen?
+              {:else}
+                Lösche…
+              {/if}
+            </button>
+            {#if dbResetState === 'confirming'}
+              <button type="button" class="btn-cancel" onclick={cancelDbReset}>Abbrechen</button>
             {/if}
-          </button>
-          {#if dbResetState === 'confirming'}
-            <button type="button" class="btn-cancel" onclick={cancelDbReset}>Abbrechen</button>
+          </div>
+          <span class="db-reset__note">Nur den Stundenplan leeren — Noten, Prüfungen &amp; Absenzen bleiben.</span>
+          {#if dbResetError}
+            <p class="db-reset__error" role="alert">{dbResetError}</p>
           {/if}
         </div>
-        {#if dbResetError}
-          <p class="db-reset__error" role="alert">{dbResetError}</p>
-        {/if}
-      </div>
 
-      <!-- Schwerere Aktion: leert ALLE gescrapten Daten. Zusaetzliche Reibung —
-           der Confirm-Button bleibt disabled, bis die Checkbox bewusst gesetzt
-           wurde (Reibung proportional zum Blast-Radius). -->
-      <div class="row">
-        <div class="db-reset" aria-live="polite">
-          <button
-            type="button"
-            class="btn-danger btn-danger--nuke"
-            class:btn-danger--confirming={fullDbResetState === 'confirming'}
-            disabled={fullDbResetState === 'busy' ||
-              (fullDbResetState === 'confirming' && !fullDbResetArmed)}
-            onclick={() => void onFullDbReset()}
-          >
-            {#if fullDbResetState === 'idle'}
-              🧨 Gesamte Datenbank zurücksetzen
-            {:else if fullDbResetState === 'confirming'}
-              Endgültig löschen
-            {:else}
-              Lösche alles…
+        <!-- Schwerere Aktion: leert ALLE gescrapten Daten. Zusaetzliche Reibung —
+             der Confirm-Button bleibt disabled, bis die Checkbox bewusst gesetzt
+             wurde (Reibung proportional zum Blast-Radius). -->
+        <div class="row">
+          <div class="db-reset" aria-live="polite">
+            <button
+              type="button"
+              class="btn-danger btn-danger--nuke"
+              class:btn-danger--confirming={fullDbResetState === 'confirming'}
+              disabled={fullDbResetState === 'busy' ||
+                (fullDbResetState === 'confirming' && !fullDbResetArmed)}
+              onclick={() => void onFullDbReset()}
+            >
+              {#if fullDbResetState === 'idle'}
+                🧨 Gesamte Datenbank zurücksetzen
+              {:else if fullDbResetState === 'confirming'}
+                Endgültig löschen
+              {:else}
+                Lösche alles…
+              {/if}
+            </button>
+            {#if fullDbResetState === 'confirming'}
+              <button type="button" class="btn-cancel" onclick={cancelFullDbReset}>Abbrechen</button>
             {/if}
-          </button>
+          </div>
           {#if fullDbResetState === 'confirming'}
-            <button type="button" class="btn-cancel" onclick={cancelFullDbReset}>Abbrechen</button>
+            <label class="nuke-confirm">
+              <input type="checkbox" bind:checked={fullDbResetArmed} />
+              <span>Ja, Noten, Prüfungen, Stundenplan &amp; Absenzen unwiderruflich löschen.</span>
+            </label>
+          {:else}
+            <span class="db-reset__note">
+              Löscht alle abgerufenen Daten. Push-Abos &amp; Einstellungen bleiben. Danach einmal abfragen.
+            </span>
+          {/if}
+          {#if fullDbResetError}
+            <p class="db-reset__error" role="alert">{fullDbResetError}</p>
           {/if}
         </div>
-        {#if fullDbResetState === 'confirming'}
-          <label class="nuke-confirm">
-            <input type="checkbox" bind:checked={fullDbResetArmed} />
-            <span>Ja, Noten, Prüfungen, Stundenplan &amp; Absenzen unwiderruflich löschen.</span>
-          </label>
-        {:else}
-          <span class="db-reset__note">
-            Löscht alle gescrapten Daten. Push-Abos &amp; Einstellungen bleiben. Danach einmal scrapen.
-          </span>
-        {/if}
-        {#if fullDbResetError}
-          <p class="db-reset__error" role="alert">{fullDbResetError}</p>
-        {/if}
       </div>
-    </div>
-  </section>
+    </section>
+  </div>
 
   <!-- ============ Save bar ============ -->
   <div class="save-bar" aria-live="polite">
@@ -852,50 +816,102 @@
   .route__subtitle { color: var(--text-mute); font-size: 12px; }
   .loading { color: var(--text-dim); font-size: 13px; padding: 24px 0; }
 
-  /* ===== Section list (NOT card-grid) ===== */
-  .sec { padding: 0 0 24px 0; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
-  .sec:last-of-type { border-bottom: none; }
-  .sec__head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 16px; }
-  .sec__head--clickable { cursor: pointer; user-select: none; border-radius: var(--r-sm); padding: 4px 0; }
-  .sec__head--clickable:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  /* When the head is rendered as a <button> for a11y (collapse triggers), kill
-   * the default button chrome and stretch to full row width so click target
-   * matches the visual header. */
-  .sec__head--btn {
+  /* ===== Bento grid =====
+   * Card-based wie das Mobile-Vorbild, aber auf Desktop als 2-Spalten-Grid
+   * arrangiert (statt 1-Spalten-Handy-Ansicht). Karten mit .card--span
+   * (Abfrage, Automatik, Datenbank) ziehen über beide Spalten. Unter
+   * 900px kollabiert das Grid auf eine Spalte. */
+  .settings-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    align-items: start;
+    margin-bottom: 8px;
+  }
+  .card--span { grid-column: 1 / -1; }
+
+  @media (max-width: 900px) {
+    .settings-grid { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  /* ===== Card (Mobile .m-fieldset Sprache) ===== */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-inline-size: 0;
+  }
+  .card--danger { border-color: var(--danger-border); }
+
+  /* ===== Card head (Mobile <legend>-Sprache: uppercase, bordered) ===== */
+  .card__head {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  /* Collapse-Trigger als <button> für a11y — Button-Chrome killen, Layout
+   * matcht den statischen Header. */
+  .card__head--btn {
     appearance: none;
     background: transparent;
     border: 0;
+    border-bottom: 1px solid var(--border-soft);
     color: inherit;
     font: inherit;
     text-align: left;
     width: 100%;
+    cursor: pointer;
+    user-select: none;
+    border-radius: var(--r-sm) var(--r-sm) 0 0;
   }
-  .sec__title {
-    margin: 0; font-size: 12px; font-weight: 600;
-    letter-spacing: 0.10em; text-transform: uppercase; color: var(--text-mute);
-    display: inline-flex; align-items: baseline; gap: 8px;
+  .card__head--btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .card__title {
+    margin: 0;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-mute);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
   }
-  .sec__chevron {
+  .card__chevron {
     color: var(--text-dim);
     flex-shrink: 0;
-    /* ease-expo (statt --ease) fuer einen snappigeren, bewussteren Reveal. */
     transition: transform var(--t-fast) var(--ease-expo);
   }
-  .sec__chevron--open { transform: rotate(90deg); }
-  .sec__hint { font-size: 12px; color: var(--text-dim); max-width: 60ch; }
+  .card__chevron--open { transform: rotate(90deg); }
+  .card__hint { font-size: 12px; color: var(--text-dim); max-width: 60ch; line-height: 1.5; }
 
   /* ===== Rows ===== */
   .rows { display: flex; flex-direction: column; gap: 14px; }
   .row { display: flex; flex-direction: column; gap: 6px; }
   .row label,
-  .row__label { font-size: 12px; color: var(--text-mute); font-weight: 500; }
+  .row__label { font-size: 13px; color: var(--text-mute); font-weight: 500; }
   .row--inline { flex-direction: row; align-items: center; justify-content: space-between; gap: 14px; }
   .row__main { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
-  .row__main label { font-size: 13px; color: var(--text); font-weight: 500; }
+  .row__main label { font-size: 14px; color: var(--text); font-weight: 500; }
 
-  /* Fieldset reset for grouped controls (Modus radios, Wochentage chips).
-   * Native fieldset adds a border, padding, and a min-width: min-content rule
-   * that breaks flex shrink — strip them all and let row layout drive sizing. */
+  /* Modus + Wochentage nebeneinander, wenn Platz da ist (Automatik-Card ist
+   * full-width). Auf schmaleren Breiten gestapelt. */
+  .auto-grid {
+    display: grid;
+    grid-template-columns: minmax(180px, 280px) 1fr;
+    gap: 14px 24px;
+    align-items: start;
+  }
+  @media (max-width: 620px) {
+    .auto-grid { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  /* Fieldset reset for grouped controls (Modus radios, Wochentage chips). */
   .row__fieldset {
     border: 0;
     padding: 0;
@@ -910,98 +926,101 @@
     .row--inline { flex-direction: column; align-items: flex-start; }
   }
 
-  /* ===== Inputs ===== */
+  /* ===== Inputs (Mobile .m-field input Sprache) ===== */
   .row input[type='text'],
   .row input[type='email'],
   .row input[type='password'],
   .row input[type='url'],
   .row input[type='number'],
   .row input[type='time'] {
-    background: var(--surface-2); border: 1px solid var(--border-soft);
-    border-radius: var(--r-md); padding: 9px 12px; color: var(--text);
-    font-size: 13px; width: 100%; color-scheme: dark;
-    transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+    background: var(--bg-elev); border: 1px solid var(--border);
+    border-radius: var(--r-md); padding: 11px 12px; color: var(--text);
+    font-size: 14px; width: 100%; color-scheme: dark;
+    appearance: none; -webkit-appearance: none;
+    transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
   }
-  .row input:focus {
-    outline: 0; border-color: var(--accent-border); background: var(--surface);
+  .row input[type='time'] { font-variant-numeric: tabular-nums; }
+  .row input:focus-visible {
+    outline: 0; border-color: var(--accent);
     box-shadow: 0 0 0 3px var(--accent-soft);
   }
   .row input:disabled { opacity: 0.6; cursor: not-allowed; }
   .hint { color: var(--text-dim); font-size: 12px; margin: 2px 0 0 0; line-height: 1.5; max-width: 64ch; }
 
-  /* ===== Toggle ===== */
-  .toggle { display: inline-flex; align-items: center; background: none; border: none; padding: 4px; cursor: pointer; flex-shrink: 0; border-radius: 999px; }
-  .toggle:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-    border-radius: 999px;
-  }
+  /* ===== Toggle (Mobile .m-switch Maße: 44×26 Track) ===== */
+  .toggle { display: inline-flex; align-items: center; background: none; border: none; padding: 0; cursor: pointer; flex-shrink: 0; border-radius: 999px; }
+  .toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 999px; }
   .toggle__track {
-    width: 36px; height: 20px; background: var(--surface-3);
+    width: 44px; height: 26px; background: var(--surface-3);
     border: 1px solid var(--border); border-radius: 999px; position: relative;
     transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
   }
-  .toggle__track--on { background: var(--accent-soft); border-color: var(--accent-border); }
+  .toggle__track--on { background: var(--accent); border-color: var(--accent); }
   .toggle__thumb {
-    position: absolute; top: 1px; left: 1px; width: 16px; height: 16px;
-    background: transparent; border: 1.5px solid var(--text-mute); border-radius: 50%;
-    transition: transform var(--t-fast) var(--ease), background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+    position: absolute; top: 2px; left: 2px; width: 20px; height: 20px;
+    background: var(--text-mute); border-radius: 50%;
+    transition: transform var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
   }
-  .toggle__thumb--on { background: var(--accent); border-color: var(--accent); transform: translateX(16px); }
+  .toggle__thumb--on { background: var(--accent-ink); transform: translateX(18px); }
 
-  /* ===== Mode switch ===== */
+  /* ===== Mode switch (Mobile .m-modeswitch: 2-Spalten-Grid mit soft-tint) ===== */
   .mode-switch {
-    display: inline-flex; background: var(--surface-2);
-    border: 1px solid var(--border-soft); border-radius: var(--r-md);
-    padding: 3px; align-self: flex-start;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    background: var(--bg-elev); border: 1px solid var(--border);
+    border-radius: var(--r-md); padding: 4px;
   }
-  .mode-opt { position: relative; cursor: pointer; user-select: none; }
+  .mode-opt { position: relative; display: block; text-align: center; cursor: pointer; user-select: none; }
   .mode-opt input[type='radio'] { position: absolute; opacity: 0; pointer-events: none; }
   .mode-opt span {
-    display: inline-block; padding: 5px 12px; border-radius: 6px;
-    font-size: 13px; color: var(--text-mute);
+    display: block; padding: 9px 8px; border-radius: calc(var(--r-md) - 2px);
+    font-size: 13px; font-weight: 500; color: var(--text-mute);
     transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
   }
-  .mode-opt input:checked + span { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .mode-opt input:checked + span {
+    background: var(--accent-soft); color: var(--accent);
+    box-shadow: inset 0 0 0 1px var(--accent-border);
+  }
   .mode-opt input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-  /* ===== Slider ===== */
+  /* ===== Slider (Mobile .m-range Sprache) ===== */
   .slider-wrap { display: flex; align-items: center; gap: 14px; }
   .slider-wrap input[type='range'] { flex: 1; accent-color: var(--accent); }
   .slider-label { font-size: 12px; color: var(--text); font-weight: 600; min-width: 96px; text-align: right; }
 
   /* ===== Time pair / chips / list ===== */
-  .time-pair { display: flex; gap: 8px; align-items: center; }
+  .time-pair { display: flex; gap: 10px; align-items: center; }
   .time-pair input { flex: 1; }
-  .time-pair__sep { color: var(--text-dim); font-size: 12px; }
-  .day-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .time-pair__sep { color: var(--text-dim); font-size: 13px; }
+  /* Day-Chips als 7-Spalten-Grid wie im Mobile (.m-daychips) — gleichmäßig
+   * verteilt statt frei umbrechend. */
+  .day-chips { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
   .day-chip {
-    background: var(--surface-2); color: var(--text-mute);
-    border: 1px solid var(--border-soft); padding: 5px 11px;
-    border-radius: var(--r-md); font-size: 13px; cursor: pointer;
-    font-family: var(--font-mono); letter-spacing: 0.02em;
+    background: var(--bg-elev); color: var(--text-mute);
+    border: 1px solid var(--border); padding: 10px 0;
+    border-radius: var(--r-md); font-size: 12px; cursor: pointer;
+    font-weight: 600; letter-spacing: 0.04em; text-align: center;
     transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
   }
   @media (hover: hover) and (pointer: fine) {
-    .day-chip:hover { background: var(--surface-3); }
+    .day-chip:hover { background: var(--surface-2); border-color: var(--border-strong); }
   }
-  .day-chip--on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  .day-chip--on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent-border); }
   .time-list { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
   .time-row { display: flex; gap: 8px; align-items: center; }
-  .time-row input { width: 110px; }
+  .time-row input { width: 130px; }
   .time-remove {
-    background: var(--surface-2); color: var(--text-mute);
-    border: 1px solid var(--border-soft); width: 28px; height: 28px;
-    border-radius: var(--r-sm); font-size: 14px; line-height: 1; cursor: pointer;
-    transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+    background: var(--surface-2); color: var(--danger);
+    border: 1px solid var(--border-soft); width: 36px; height: 36px;
+    border-radius: 999px; font-size: 20px; line-height: 1; cursor: pointer; flex-shrink: 0;
+    transition: background var(--t-fast) var(--ease);
   }
   @media (hover: hover) and (pointer: fine) {
-    .time-remove:hover { background: var(--surface-3); color: var(--danger); }
+    .time-remove:hover { background: var(--surface-3); }
   }
   .time-add {
     background: transparent; color: var(--text-mute);
-    border: 1px dashed var(--border); border-radius: var(--r-sm);
-    padding: 6px 12px; font-size: 12px; cursor: pointer;
+    border: 1px dashed var(--border); border-radius: var(--r-md);
+    padding: 8px 14px; font-size: 13px; cursor: pointer; font-weight: 500;
     transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
   }
   @media (hover: hover) and (pointer: fine) {
@@ -1009,14 +1028,15 @@
   }
 
   /* ===== Danger ===== */
-  .sec--danger { border-bottom: none; }
+  .danger-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 24px; }
+  @media (max-width: 700px) { .danger-grid { grid-template-columns: minmax(0, 1fr); } }
   .db-reset { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .btn-danger {
     background: var(--surface-2); color: var(--danger);
     /* Danger-Identitaet schon im Ruhezustand ueber einen ZARTEN getoenten Rahmen
        (statt knallrotem Fill) — restraint. */
     border: 1px solid var(--danger-border); border-radius: var(--r-md);
-    padding: 8px 14px; font-size: 13px; font-weight: 600;
+    padding: 9px 14px; font-size: 13px; font-weight: 600;
     cursor: pointer; align-self: flex-start;
     /* transform in der Transition fuer Press-Feedback (Emil). Nie `all`. */
     transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease),
@@ -1030,9 +1050,7 @@
   /* "Nuke" = die schwerere Aktion (alles loeschen): staerkerer Danger-Rahmen im
      Ruhezustand, damit sie sich vom leichteren Stundenplan-Reset abhebt. */
   .btn-danger--nuke { border-color: var(--danger-border-strong); }
-  /* Confirm = solider Danger-Fill ("ein Klick vom Loeschen"). Kurzer Text haelt
-     den Button kompakt statt ihn zum Balken aufzublasen. :hover hier explizit
-     solide, damit der normale Hover-Tint nicht gewinnt. */
+  /* Confirm = solider Danger-Fill ("ein Klick vom Loeschen"). */
   .btn-danger--confirming,
   .btn-danger--confirming:hover {
     background: var(--danger); color: var(--accent-ink); border-color: var(--danger);
@@ -1055,7 +1073,7 @@
   .btn-cancel {
     background: transparent; color: var(--text-mute);
     border: 1px solid var(--border-soft); border-radius: var(--r-md);
-    padding: 8px 14px; font-size: 13px; font-weight: 500;
+    padding: 9px 14px; font-size: 13px; font-weight: 500;
     cursor: pointer;
     transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
   }
@@ -1068,7 +1086,7 @@
    * long forms. z-index stays low (10) so app-level Topbar/overlays win. */
   .save-bar {
     display: flex; align-items: center; justify-content: flex-end;
-    gap: 14px; margin-top: 8px;
+    gap: 14px; margin-top: 16px;
     border-top: 1px solid var(--border);
     position: sticky; bottom: 0; z-index: 10;
     background: var(--surface);
@@ -1086,19 +1104,23 @@
   .save-bar__hint { margin-right: auto; font-size: 12px; color: var(--text-dim); letter-spacing: 0.04em; }
   .btn-save {
     background: var(--accent); color: var(--accent-ink); border: none;
-    border-radius: var(--r-md); padding: 9px 18px; font-size: 13px;
+    border-radius: var(--r-md); padding: 10px 20px; font-size: 14px;
     font-weight: 600; letter-spacing: 0.02em; cursor: pointer;
-    transition: transform var(--t-fast) var(--ease), opacity var(--t-fast) var(--ease);
+    box-shadow: var(--shadow-sm);
+    transition: transform var(--t-fast) var(--ease), opacity var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
   }
-  /* Press-down only (scale 0.97). Kein hover-Lift — der war marketing-haft und
+  @media (hover: hover) and (pointer: fine) {
+    .btn-save:hover:not(:disabled) { background: var(--accent-hover); }
+  }
+  /* Press-down only (scale 0.98). Kein hover-Lift — der war marketing-haft und
      out-of-register fuer diese zurueckhaltende Produkt-Oberflaeche. */
-  .btn-save:active:not(:disabled) { transform: scale(0.97); }
+  .btn-save:active:not(:disabled) { transform: scale(0.98); }
   .btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
 
   @media (prefers-reduced-motion: reduce) {
     .toggle__track, .toggle__thumb, .mode-opt span, .day-chip,
     .btn-danger, .btn-cancel, .btn-save, .row input, .time-add, .time-remove,
-    .sec__chevron {
+    .card__chevron {
       transition: none;
     }
     .btn-save:active:not(:disabled) { transform: none; }

@@ -75,11 +75,11 @@
     try {
       const res = await apiTriggerScrape();
       if (res?.triggered) {
-        pushToast('info', 'Scrape gestartet.', { title: 'Scrape' });
+        pushToast('info', 'Abfrage gestartet.', { title: 'Abfrage' });
       } else if (res?.reason) {
-        pushToast('warn', `Nicht gestartet: ${res.reason}`, { title: 'Scrape' });
+        pushToast('warn', `Nicht gestartet: ${res.reason}`, { title: 'Abfrage' });
       }
-      // Routes listen for this event to refetch their data once the scrape
+      // Routes listen for this event to refetch their data once the Abfrage
       // completes. SSE-based live status updates would replace this; until
       // then the event triggers a soft refetch.
       window.dispatchEvent(new CustomEvent('wissen:scrape'));
@@ -97,7 +97,7 @@
       } else if (err instanceof Error) {
         msg = err.message;
       }
-      pushToast('error', msg, { title: 'Scrape fehlgeschlagen' });
+      pushToast('error', msg, { title: 'Abfrage fehlgeschlagen' });
     } finally {
       scrapeBusy = false;
     }
@@ -226,12 +226,15 @@
       for (const entry of res.logs) live.pushLog(entry);
     }).catch(() => { /* ignore */ });
 
-    // Live SSE: status pill + log peek + scrape-done refetch trigger.
+    // Live SSE: status pill + log peek + abfrage-done refetch trigger.
     const sse: SseClient = connectEvents();
     const offState = sse.onState((s) => { live.connection = s; });
     const offStatus = sse.on('status', (s) => live.applyStatus(s));
     const offLog = sse.on('log', (entry) => live.pushLog(entry));
-    const offDone = sse.on('scrape_done', () => {
+    // Genau EIN Done-Listener: der Server feuert 'abfrage_done' (kanonisch)
+    // UND das alte 'scrape_done'. Auf beide zu lauschen löste einen doppelten
+    // Refetch aus — daher bewusst nur auf das kanonische Event.
+    const offDone = sse.on('abfrage_done', () => {
       // Routes refetch their data on this event.
       window.dispatchEvent(new CustomEvent('wissen:scrape'));
     });

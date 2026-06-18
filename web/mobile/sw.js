@@ -11,7 +11,7 @@
    ============================================================ */
 'use strict';
 
-const VERSION = 'wn-23';
+const VERSION = 'wn-25';
 const SHELL_CACHE = 'wn-shell-' + VERSION;
 const API_CACHE = 'wn-api-' + VERSION;
 

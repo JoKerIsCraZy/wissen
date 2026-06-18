@@ -58,7 +58,8 @@ async function start(cfg) {
         { command: 'morgen', description: 'Stundenplan morgen' },
         { command: 'woche', description: 'Nächste Woche' },
         { command: 'stundenplan', description: 'Alle kommenden Lektionen' },
-        { command: 'scrape', description: 'Manueller Scrape' },
+        { command: 'abfrage', description: 'Manuelle Abfrage' },
+        { command: 'scrape', description: 'Manuelle Abfrage (Alias)' },
         { command: 'status', description: 'Server-Status' }
       ]
     }).catch(e => {

@@ -29,7 +29,7 @@ function create({ logger }) {
     limit: 5,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
-    handler: (req, res) => apiError(res, 429, 'Scrape-Rate überschritten')
+    handler: (req, res) => apiError(res, 429, 'Abfrage-Rate überschritten')
   });
 
   // Test-Push verbraucht FCM/Mozilla/Apple-Quota — wenn das spamt riskieren wir

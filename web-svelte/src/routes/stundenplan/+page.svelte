@@ -411,7 +411,7 @@
     <div class="plan-empty">
       <div class="plan-empty__title">Keine Lektionen geplant.</div>
       <p class="plan-empty__hint">
-        Klick auf <span class="kbd">Scrape</span> oben rechts, um den Plan zu aktualisieren.
+        Klick auf <span class="kbd">Abfragen</span> oben rechts, um den Plan zu aktualisieren.
       </p>
     </div>
   {:else}

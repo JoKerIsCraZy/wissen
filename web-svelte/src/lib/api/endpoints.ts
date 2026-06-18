@@ -171,15 +171,16 @@ export const resetDb = () =>
 export const getStats = (init?: { signal?: AbortSignal }) =>
 	api<StatsResponse>('/stats', init);
 
-// ---------- Scrape ----------
+// ---------- Abfrage ----------
 
 /**
- * POST /api/scrape — kicks off a scrape cycle. Server returns a JSON
+ * POST /api/abfrage — kicks off an Abfrage cycle (kanonisch seit Phase 6A;
+ * `/api/scrape` lebt serverseitig als Alias weiter). Server returns a JSON
  * envelope even on 429 (cooldown), but the fetch wrapper throws
  * ApiHttpError for non-2xx — wrap in try/catch and inspect `err.body`.
  */
 export const triggerScrape = () =>
-	api<ScrapeTriggerResponse>('/scrape', { method: 'POST' });
+	api<ScrapeTriggerResponse>('/abfrage', { method: 'POST' });
 
 // ---------- Settings ----------
 

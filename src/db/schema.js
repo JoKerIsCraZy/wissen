@@ -225,6 +225,15 @@ function open(filename) {
   ensureColumn(d, 'noten_pruefungen', 'missing_streak', 'missing_streak INTEGER NOT NULL DEFAULT 0');
   ensureColumn(d, 'stundenplan', 'change_pending', 'change_pending INTEGER NOT NULL DEFAULT 0');
   ensureColumn(d, 'stundenplan', 'change_seen_at', 'change_seen_at TEXT');
+  // source: welche Datenquelle ('scrape' DOM | 'rest' nice2 REST v2) diese Zeile
+  // zuletzt geschrieben hat. Der Natural Key (datum_iso, zeit_von, veranstaltung,
+  // klasse) unterscheidet sich zwischen den Quellen (DOM: Klassen-CODE / letztes
+  // DOM-Feld; REST: relEvent.class_label / relEvent.label) → ein UPSERT über den
+  // Quellenwechsel hinweg würde DUPLIZIEREN statt matchen. saveStundenplan nutzt
+  // diese Spalte, um einen Quellenwechsel zu erkennen und die Tabelle EINMALIG
+  // atomar neu aufzubauen (seamless Cutover, kein Datenverlust). Legacy-Zeilen
+  // (Pre-Migration) haben source NULL und gelten als „fremde Quelle".
+  ensureColumn(d, 'stundenplan', 'source', 'source TEXT');
   // Absenzen: Frisch-Marker analog noten/stundenplan. saveLektionen setzt
   // change_pending=1 auf die absenzen-Zeile bei neuer/geänderter Abwesenheit.
   // detail_scraped_at: Cooldown für den Detail-Scrape (12h), spiegelt noten.
