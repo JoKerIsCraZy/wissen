@@ -36,9 +36,7 @@ function drawSettings(s) {
   settingsState = {
     scheduleMode: (s && s.scheduleMode === 'weekly') ? 'weekly' : 'interval',
     scheduleDays: Array.isArray(s && s.scheduleDays) ? s.scheduleDays.slice() : [1, 2, 3, 4, 5],
-    scheduleTimes: Array.isArray(s && s.scheduleTimes) ? s.scheduleTimes.slice() : ['08:00'],
-    // Wird vom Toggle in der Scrape-Card (views/scrape.js) gelesen + mutiert.
-    manualScrapeFullDetails: !!(s && s.manualScrapeFullDetails)
+    scheduleTimes: Array.isArray(s && s.scheduleTimes) ? s.scheduleTimes.slice() : ['08:00']
   };
 
   const form = document.createElement('form');
@@ -594,10 +592,6 @@ function collectSettingsPayload(form) {
   // Toggles
   out.autoRun  = !!form.querySelector('[name="autoRun"]').checked;
   out.headless = !!form.querySelector('[name="headless"]').checked;
-  // manualScrapeFullDetails: Toggle lebt in der Scrape-Card (views/scrape.js)
-  // und schreibt direkt in settingsState — die Card wird per SSE neu gerendert,
-  // ein DOM-Query wäre dadurch nicht stabil.
-  out.manualScrapeFullDetails = !!settingsState.manualScrapeFullDetails;
 
   // Schedule
   out.scheduleMode = settingsState.scheduleMode;

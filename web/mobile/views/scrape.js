@@ -111,38 +111,6 @@ function renderScrapeCard(container) {
   btn.addEventListener('click', triggerScrape);
   card.append(btn);
 
-  // Option: alle Moduldetails mitscrapen — lebt direkt in der Scrape-Card
-  // statt in einem eigenen Fieldset. Der Wert wird in settingsState gehalten
-  // (gesetzt von drawSettings in settings.js), damit ein SSE-getriebenes
-  // Re-Render der Card die noch ungespeicherte Auswahl nicht verwirft.
-  // collectSettingsPayload liest aus settingsState, der Speichern-Button
-  // persistiert ihn via PATCH /api/settings.
-  const optState = (typeof settingsState !== 'undefined') ? settingsState : null;
-  if (optState) {
-    const opt = document.createElement('div');
-    opt.className = 'm-scrape__opt';
-    const tog = document.createElement('label');
-    tog.className = 'm-toggle';
-    const tLab = document.createElement('span');
-    tLab.className = 'm-toggle__label';
-    tLab.textContent = 'Alle Moduldetails mit abfragen';
-    const tCb = document.createElement('input');
-    tCb.type = 'checkbox';
-    tCb.checked = !!optState.manualScrapeFullDetails;
-    tCb.addEventListener('change', () => {
-      optState.manualScrapeFullDetails = tCb.checked;
-    });
-    const tSw = document.createElement('span');
-    tSw.className = 'm-switch';
-    tog.append(tLab, tCb, tSw);
-    const tHint = document.createElement('small');
-    tHint.className = 'm-scrape__opt-hint';
-    tHint.textContent = 'Zieht bei der manuellen Abfrage die Details aller Module ' +
-      'neu — sonst nur geänderte oder neue. Der Auto-Run ist davon nicht betroffen.';
-    opt.append(tog, tHint);
-    card.append(opt);
-  }
-
   // Progress (only while running)
   if (running) {
     const steps = document.createElement('div');

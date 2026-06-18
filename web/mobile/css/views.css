@@ -1086,22 +1086,6 @@ input[type="checkbox"]:checked + .m-switch::before { transform: translateX(18px)
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
-/* Option-Reihe in der Scrape-Card (Toggle "Alle Moduldetails mitscrapen").
- * border-top trennt die persistente Einstellung sichtbar vom Action-Button. */
-.m-scrape__opt {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-}
-.m-scrape__opt .m-toggle { padding: 0; }
-.m-scrape__opt-hint {
-  font-size: 11px;
-  color: var(--text-dim);
-  line-height: 1.5;
-}
-
 .m-scrape__btn {
   display: inline-flex;
   align-items: center;
