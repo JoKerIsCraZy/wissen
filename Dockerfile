@@ -29,12 +29,12 @@ ENV NODE_ENV=production \
 #
 # APT_REFRESH busts the GHA buildx cache for this layer when new Ubuntu
 # security patches land between base-image digest bumps. CI passes the current
-# ISO week (YYYY-WW) so PR/push builds in the same week share cache (fast)
-# while the first build of each week pulls fresh apt state. Local builds use
+# date (YYYY-MM-DD) so PR/push builds on the same day share cache (fast) while
+# the first build of each day pulls fresh apt security state. Local builds use
 # the default below; bump it manually if you need a forced refresh.
 USER root
 ARG DEBIAN_FRONTEND=noninteractive
-ARG APT_REFRESH=2026-W25
+ARG APT_REFRESH=2026-06-18
 # libc-bin's ldconfig post-install script intermittently SIGSEGVs (exit 139)
 # under qemu-user-static during the linux/arm64 leg of buildx multi-arch
 # builds. apt then aborts the whole `upgrade` with "Sub-process /usr/bin/dpkg

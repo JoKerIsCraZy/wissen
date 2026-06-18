@@ -75,9 +75,9 @@ jobs:
             org.opencontainers.image.description=Inoffizieller Scraper für das WISS Tocco-Schulportal
             org.opencontainers.image.licenses=MIT
 
-      - name: Compute weekly APT_REFRESH key
+      - name: Compute daily APT_REFRESH key
         id: refresh
-        run: echo "value=$(date -u +%Y-W%V)" >> "$GITHUB_OUTPUT"
+        run: echo "value=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
 
       - name: Build and push
         id: build
