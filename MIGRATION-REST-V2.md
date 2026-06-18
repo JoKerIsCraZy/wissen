@@ -89,7 +89,8 @@ Der Workflow plante "Phase 3: REST-Pfad für Prüfungsgewichte live verifizieren
 
 ## 5. DB
 
-- **Schema bleibt** (producer-agnostisch). Kein Tabellen-Rebuild für die Funktion nötig.
+- **Schema bleibt** (producer-agnostisch). Kein Tabellen-Rebuild für die Funktion nötig — mit **einer** Ausnahme: Stundenplan (s.u.).
+- **Stundenplan-Quellenwechsel (seamless Cutover, umgesetzt):** Der Natural Key `(datum_iso, zeit_von, veranstaltung, klasse)` ist quell-abhängig — DOM schrieb den Klassen-CODE (`UIFZ-…`) + das letzte DOM-Feld, REST schreibt `relEvent.class_label` + `relEvent.label`. Ein blosser UPSERT über den Wechsel hinweg würde **duplizieren** statt matchen (jede Lektion doppelt). Lösung: neue Spalte `stundenplan.source` (`rest`/`scrape`/`NULL`); `saveStundenplan(db, entries, { source })` erkennt fremde Quell-Zeilen (inkl. Legacy-`NULL`) und baut die Tabelle **einmalig atomar** neu auf (gleiche Transaktion; wipet nie auf leer; nach Wipe kein Raumwechsel-Push). Self-healing für jeden Wechsel (auch `rest→scrape`-Fallback). Stundenplan hat keine History → kein Datenverlust, voll re-derivebar. Kein UI-Reset nötig.
 - **kuerzel_id-Remap (Critic-Gap, HIGH):** Die alte `kuerzel_id` kommt aus `parseKuerzel(parts[0])` der DWR-Suche; die REST-`Input_data`-PK (z.B. 84121) ist eine **andere** Zahl. Wenn `kuerzel_id` sich ändert, brechen `noten_history`/`noten_pruefungen`-Joins aller Bestands-DBs **still**. → **Erst live verifizieren**, ob `kuerzel_id` stabil bleibt (gleiche Ableitung aus REST). Falls nicht: `PRAGMA user_version`-gegatete Remap-Migration über den **stabilen `kuerzel_code`**.
 - **Spalten-Drops (Cleanup, bedingt):** `noten.detail_scraped_at`/`absenzen.detail_scraped_at` (Cooldown) droppbar sobald Achse REST-voll; `noten_pruefungen.missing_streak` droppbar nach Prüfungs-Verifikation. `detail_id` **bleibt** (= REST-/getDetailData-PK). Alle via `user_version`-Gate, idempotent.
 

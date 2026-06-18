@@ -278,7 +278,10 @@ function create({ state, db, scraper, bot, push, settings, logger, sse, schedule
         detailIdsUpdated = db.updateDetailIds(database, scraped.detailIdMap);
       }
 
-      const sStats = db.saveStundenplan(database, scraped.stundenplan || []);
+      const sStats = db.saveStundenplan(database, scraped.stundenplan || [], { source: s.dataSource });
+      if (sStats.replaced) {
+        logger.log(`🔄 Stundenplan-Quelle gewechselt (→ ${s.dataSource}) — Tabelle einmalig neu aufgebaut (alte Quell-Zeilen entfernt, keine Duplikate)`, 'info');
+      }
       const pruned = db.pruneVergangen(database);
 
       // Absenzen-Übersicht persistieren (vierte Daten-Achse). saveAbsenzen ist

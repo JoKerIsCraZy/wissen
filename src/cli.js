@@ -136,7 +136,7 @@ async function main() {
       if (detailIdMap && Object.keys(detailIdMap).length) {
         db.updateDetailIds(database, detailIdMap);
       }
-      const sStats = db.saveStundenplan(database, stundenplan);
+      const sStats = db.saveStundenplan(database, stundenplan, { source: config.dataSource });
       const pruned = db.pruneVergangen(database);
       console.log('\n🗄️  DB → data/wissen.db');
       console.log('    Noten:        ' + nStats.inserted + ' neu, ' + nStats.updated + ' aktualisiert, ' + nStats.changed + ' Note geändert');
