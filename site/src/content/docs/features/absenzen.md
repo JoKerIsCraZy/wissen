@@ -5,9 +5,9 @@ description: Anwesenheits-Tracking pro Modul — Soll/Ist, Minimalanwesenheit un
 
 Absenzen ist die **vierte Daten-Achse** in WISSen — neben Noten, Stundenplan und Push. Aufgebaut ist sie wie der Noten-Tab: pro Modul eine Übersicht, pro Lektion eine Tagesliste.
 
-## Was wird gescrapet
+## Was wird abgefragt
 
-Pro Modul holt der Scraper die **Anwesenheit** aus dem WISS-Tocco-Portal — plus eine **Tagesliste pro Lektion** mit dem Status jedes Termins.
+Pro Modul holt WISSen die **Anwesenheit** aus dem WISS-Tocco-Portal — plus eine **Tagesliste pro Lektion** mit dem Status jedes Termins.
 
 ### Status pro Lektion
 
@@ -50,7 +50,7 @@ WISSen pusht (Telegram + Web-Push), sobald sich an deinen Abwesenheiten etwas ä
 | ✅ **Teilgenommen** | Nie |
 | ⏳ **Offen** | Nie |
 
-**Cold-Start-sicher:** Der erste Scrape eines Moduls pusht **0×** — keine Flut historischer Absenzen beim Einrichten. Erst ab dem zweiten Scrape gilt eine Abwesenheit als „neu".
+**Cold-Start-sicher:** Die erste Abfrage eines Moduls pusht **0×** — keine Flut historischer Absenzen beim Einrichten. Erst ab der zweiten Abfrage gilt eine Abwesenheit als „neu".
 
 ## Scheduler-Verhalten
 
@@ -60,9 +60,9 @@ Der Absenz-Detail-Pass (Tagesliste je Lektion) ist **teuer**, deshalb läuft er 
 |---|---|---|
 | **Auto-Run (zwischendurch)** | Jedes Mal aktualisiert | Übersprungen |
 | **Auto-Run (letzter Lauf des Tages)** | Aktualisiert | Läuft |
-| **Manueller Scrape** | Aktualisiert | Läuft immer |
+| **Manuelle Abfrage** | Aktualisiert | Läuft immer |
 
-So bleiben die Stats den Tag über aktuell, während der teure Detail-Pass und die Push-Logik nur **einmal täglich** (am letzten geplanten Lauf) bzw. **bei jedem manuellen Scrape** anfallen.
+So bleiben die Stats den Tag über aktuell, während der teure Detail-Pass und die Push-Logik nur **einmal täglich** (am letzten geplanten Lauf) bzw. **bei jeder manuellen Abfrage** anfallen.
 
 ## Desktop-Dashboard
 

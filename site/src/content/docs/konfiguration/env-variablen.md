@@ -12,7 +12,7 @@ Alle Settings über `.env`-Datei oder Docker `-e`-Flags. Eine Beispiel-Datei fin
 | **`MS_EMAIL`** | Microsoft-SSO E-Mail (`name@schule.ch`) |
 | **`MS_PASSWORD`** | Microsoft-Passwort |
 
-Ohne diese beiden kann der Scraper sich nicht einloggen.
+Ohne diese beiden kann WISSen sich nicht beim Microsoft-SSO einloggen.
 
 ## Häufig genutzt
 
@@ -39,13 +39,14 @@ Ohne diese beiden kann der Scraper sich nicht einloggen.
 | `STUNDENPLAN_URL` | *Stundenplanseite* | Vollständige Tocco-Stundenplan-URL |
 | `USER_PK` | — | Tocco-User-Primärschlüssel |
 
-### Browser / Scraper
+### Browser / Datenquelle
 
 | Variable | Default | Beschreibung |
 |---|---|---|
+| `DATA_SOURCE` | `rest` | Datenquelle: `rest` = nice2 REST v2 + DWR (Default), `scrape` = DOM-Scraping (Fallback). env-only |
 | `HEADLESS` | `true` | `false` = sichtbarer Browser (Debug) |
 | `SLOW_MO` | `0` | Millisekunden zwischen Playwright-Aktionen |
-| `DEBUG_SCRAPER` | `false` | DOM-Dumps bei Fehlern |
+| `DEBUG_SCRAPER` | `false` | DOM-Dumps bei Fehlern (nur im `scrape`-Fallback relevant) |
 
 ### Web-Push (VAPID)
 

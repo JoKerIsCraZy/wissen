@@ -29,7 +29,7 @@ cp .env.example .env   # Werte eintragen — siehe Konfiguration
 npm run serve
 ```
 
-Der Server baut zuerst das V2-Frontend (`preserve` = `build:web`), startet dann auf Port `3000` und scrapet im konfigurierten Intervall.
+Der Server baut zuerst das V2-Frontend (`preserve` = `build:web`), startet dann auf Port `3000` und fragt im konfigurierten Intervall ab.
 
 ## Dev-Modus mit HMR
 
@@ -43,9 +43,9 @@ npm run serve
 npm run dev:web
 ```
 
-## Einmal-Scrape (CLI)
+## Einmal-Abfrage (CLI)
 
-Statt Server: nur einen einzelnen Scrape ausführen.
+Statt Server: nur eine einzelne Abfrage ausführen.
 
 ```bash
 npm start
@@ -58,7 +58,7 @@ npm start
 | `npm run serve` | Build V2 + HTTP-Server auf `:3000` |
 | `npm run dev:web` | SvelteKit-Dev-Server auf `:5173` |
 | `npm run build:web` | V2-Frontend nach `dist/` bauen |
-| `npm start` | Einmaliger Scrape (CLI-Modus) |
+| `npm start` | Einmalige Abfrage (CLI-Modus) |
 | `npm run setup` | Playwright Chromium installieren |
 | `npm test` | Unit-Tests (`node:test`) |
 | `npm run lint` | Syntax-Check aller `src/*.js` Dateien |

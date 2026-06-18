@@ -18,7 +18,7 @@ WISSen sendet **echte Web-Push-Benachrichtigungen** über die Web-Push-API — M
 Notifications kommen **auch wenn die App komplett geschlossen ist**.
 
 :::note[Absenz-Pushes]
-Nur **abwesend entschuldigt** und **abwesend unentschuldigt** lösen einen Push aus. Die Status **„teilgenommen"** und **„offen"** pushen nie. Der Absenz-Push ist **Cold-Start-sicher**: der allererste Scrape pusht keine historischen Abwesenheiten, sondern legt nur den Ausgangsstand an.
+Nur **abwesend entschuldigt** und **abwesend unentschuldigt** lösen einen Push aus. Die Status **„teilgenommen"** und **„offen"** pushen nie. Der Absenz-Push ist **Cold-Start-sicher**: die allererste Abfrage pusht keine historischen Abwesenheiten, sondern legt nur den Ausgangsstand an.
 :::
 
 ## Voraussetzungen

@@ -20,7 +20,7 @@ description: Was WISSen ist, für wen es gedacht ist und was du damit bekommst.
 | 🗺 **Inline-Raumpläne** | 4. OG / 2. OG mit Live-Highlighting des aktuellen Raums |
 | 🔔 **Push-Benachrichtigungen** | Auf dein Handy bei neuen Noten und Zimmerwechseln — auch bei geschlossener App |
 | 📅 **Stundenplan** | Tages-, Wochen- und Monatsansicht mit kommenden Terminen |
-| ⏱ **Auto-Scrape** | Intervall- oder Wochenplan-Modus |
+| ⏱ **Auto-Abfrage** | Intervall- oder Wochenplan-Modus |
 | 💬 **Telegram-Bot** | Live-Tracking, Push und interaktives Menü |
 | 🔒 **Sicher** | Bearer-Token-Auth, Anti-Brute-Force, Settings AES-256-GCM-verschlüsselt |
 | 📜 **SQLite-Historie** | Alle Noten- und ZP/LB-Änderungen werden archiviert |

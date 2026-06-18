@@ -34,8 +34,8 @@ Push-Benachrichtigungen funktionieren auf iOS **nur in der installierten PWA**, 
 | **Noten** | Übersicht, Modul-Sheet mit LB/ZP-Liste |
 | **Absenzen** | Stats-Header + Modul-Liste (A–Z, Typ-Filter); Tap aufs Modul öffnet Sheet mit Tagesliste pro Lektion + Status-Badge |
 | **Push** | Aktivieren, Test-Push, Subscriptions verwalten |
-| **Settings** | Scraper, Telegram, Credentials |
-| **Scrape** | Manueller Scrape mit Live-Phase-Anzeige |
+| **Settings** | Datenquelle, Telegram, Credentials |
+| **Abfrage** | Manuelle Abfrage mit Live-Phase-Anzeige |
 
 ## Service-Worker
 
