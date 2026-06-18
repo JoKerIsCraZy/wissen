@@ -1,10 +1,16 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
+import rehypeBaseLinks from './rehype-base-links.mjs';
+
+const base = '/wissen';
 
 export default defineConfig({
   site: 'https://jokeriscrazy.github.io',
-  base: '/wissen',
+  base,
+  markdown: {
+    rehypePlugins: [[rehypeBaseLinks, { base }]],
+  },
   integrations: [
     starlight({
       title: 'WISSen',
