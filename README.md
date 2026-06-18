@@ -18,7 +18,7 @@ ohne Cloud, ohne Account, ohne Datenkrake.
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22.5-339933?logo=node.js&logoColor=white)](package.json)
 [![SvelteKit](https://img.shields.io/badge/svelte-5-FF3E00?logo=svelte&logoColor=white)](https://svelte.dev)
-[![Playwright](https://img.shields.io/badge/playwright-1.59-45ba4b?logo=playwright&logoColor=white)](https://playwright.dev)
+[![Playwright](https://img.shields.io/badge/playwright-1.61-45ba4b?logo=playwright&logoColor=white)](https://playwright.dev)
 
 </div>
 
@@ -49,8 +49,9 @@ Tocco selbst nicht hat.
 - 🔔 **Push-Benachrichtigungen** bei neuen Noten, Bewertungs-Korrekturen, Zimmerwechseln und neuen Absenzen — **auch bei geschlossener App** (Mozilla / FCM / Apple Web Push)
 - 🗺 **Inline-Raumpläne** (4. OG / 2. OG) mit Live-Highlighting des aktuellen Raums
 - 📅 **Stundenplan-Tab** mit kommenden Terminen und Frisch-Markern für Änderungen
-- ✅ **Absenzen-Tab** — Anwesenheit pro Modul (Soll/Ist-Lektionen, Ø-Anwesenheit, Module unter Minimum), Tagesliste pro Lektion mit Status (teilgenommen / offen / abwesend entschuldigt · unentschuldigt) und Push bei neuer Abwesenheit
-- ⏱ **Auto-Scrape** im Intervall- oder Wochenplan-Modus, mit manuellem Trigger
+- ✅ **Absenzen-Tab** — Anwesenheit pro Modul (Soll/Ist-Lektionen, Ø-Anwesenheit, Module unter Minimum). Anwesenheit zählt nur **stattgefundene Lektionen** (offene / zukünftige Termine drücken die Quote nicht), Tagesliste pro Lektion mit Status (teilgenommen / offen / abwesend entschuldigt · unentschuldigt) und Push bei neuer Abwesenheit
+- ⏱ **Auto-Abfrage** im Intervall- oder Wochenplan-Modus, mit manuellem Trigger
+- ⚡ **nice2 REST v2 + DWR** als primäre Datenquelle (schnell, kein DOM-Scraping) — DOM-Scraping bleibt als `DATA_SOURCE=scrape`-Fallback
 - 💬 **Telegram-Bot** mit Live-Tracking, Inline-Buttons und interaktivem Menü
 - 🔒 **Bearer-Token-Auth** + Anti-Brute-Force in drei Schichten — sicher hinter Reverse-Proxy
 - 🔐 **AES-256-GCM** für `settings.json`-Secrets at rest — Backup-Leaks bleiben unkritisch
@@ -199,13 +200,14 @@ Alle Settings über `.env`-Datei oder Docker `-e`-Flag. **Pflichtwerte** sind fe
 
 | Variable            | Default                    | Beschreibung                                      |
 | ------------------- | -------------------------- | ------------------------------------------------- |
+| `DATA_SOURCE`       | `rest`                     | Datenquelle: `rest` (nice2 REST v2 + DWR) oder `scrape` (DOM-Fallback). **Env-only**, hat Vorrang vor dem UI |
 | `TOCCO_BASE`        | _Tocco-Seite_              | Tocco-Basis-URL                                   |
 | `NOTEN_URL`         | _Notenseite_               | Tocco-Noten-URL                                   |
 | `STUNDENPLAN_URL`   | _Stundenplanseite_         | Tocco-Stundenplan-URL                             |
 | `USER_PK`           | —                          | Tocco-User-Primärschlüssel                        |
 | `HEADLESS`          | `true`                     | `false` = sichtbarer Browser (Debug)              |
 | `SLOW_MO`           | `0`                        | Millisekunden zwischen Playwright-Aktionen        |
-| `DEBUG_SCRAPER`     | `false`                    | DOM-Dumps bei Fehlern                             |
+| `DEBUG_SCRAPER`     | `false`                    | DOM-Dumps bei Fehlern (nur `scrape`-Modus)        |
 | `VAPID_PUBLIC_KEY`  | _auto_                     | Web-Push-Public-Key, in `data/vapid.json`         |
 | `VAPID_PRIVATE_KEY` | _auto_                     | Web-Push-Private-Key                              |
 | `VAPID_SUBJECT`     | `mailto:admin@example.com` | Kontakt für Push-Provider                         |
@@ -220,7 +222,7 @@ Alle Settings über `.env`-Datei oder Docker `-e`-Flag. **Pflichtwerte** sind fe
 
 ## API
 
-Alle Endpoints (außer `/healthz`) erfordern Bearer-Token.
+Alle Endpoints (außer `/healthz` / `/healthz/ready`) erfordern Bearer-Token.
 
 ```bash
 curl -H "Authorization: Bearer $API_TOKEN" http://localhost:3000/api/noten
@@ -228,21 +230,28 @@ curl -H "Authorization: Bearer $API_TOKEN" http://localhost:3000/api/noten
 
 | Methode         | Pfad                        | Beschreibung                               |
 | --------------- | --------------------------- | ------------------------------------------ |
-| `GET`           | `/healthz`                  | Health-Check (kein Auth)                   |
+| `GET`           | `/healthz`                  | Liveness-Probe (kein Auth)                 |
+| `GET`           | `/healthz/ready`            | Readiness-Probe (kein Auth; sensible Felder nur mit Token) |
 | `GET`           | `/api/status`               | Scheduler- und Server-Status               |
+| `GET`           | `/api/version`              | App-Version + Update-Check                 |
 | `GET / PATCH`   | `/api/settings`             | Settings lesen / ändern                    |
 | `GET`           | `/api/noten`                | Noten (`?semester=S1&sortBy=note`)         |
 | `GET`           | `/api/noten/:id/pruefungen` | LB/ZP/Sonstige eines Moduls                |
+| `GET`           | `/api/history/:id`          | Notenverlauf eines Moduls                  |
+| `POST`          | `/api/seen`                 | Frisch-Marker als gesehen markieren (`{kind, ids[]}`) |
+| `POST`          | `/api/dismiss`              | Letzte-Änderungs-Einträge entfernen (`{kind, ids?}` oder `{all:true}`) |
 | `GET`           | `/api/stundenplan`          | Termine (`?from=YYYY-MM-DD&limit=100`)     |
 | `POST`          | `/api/stundenplan/clear`    | Stundenplan-Cache leeren                   |
-| `GET`           | `/api/history/:id`          | Notenverlauf eines Moduls                  |
 | `GET`           | `/api/stats`                | Gesamt-Statistiken                         |
 | `GET`           | `/api/absenzen`             | Absenzen-Übersicht aller Module + Stats    |
 | `GET`           | `/api/absenzen/:code/termine` | Tagesliste (Lektionen + Status) eines Moduls |
-| `POST`          | `/api/scrape`               | Manuellen Scrape auslösen                  |
+| `POST`          | `/api/abfrage`              | Manuelle Abfrage auslösen                  |
+| `POST`          | `/api/scrape`               | Deprecated Alias für `/api/abfrage` (RFC-8594 `Deprecation`-Header) |
+| `POST`          | `/api/db/reset`             | DB zurücksetzen (Noten / Stundenplan / Absenzen) |
 | `GET`           | `/api/logs`                 | Letzte Log-Zeilen                          |
 | `GET`           | `/api/events`               | SSE-Stream für Live-Status                 |
 | `GET`           | `/api/push/vapid-key`       | VAPID-Public-Key der PWA                   |
+| `GET`           | `/api/push/status`          | Push-Konfig-Status + Subscription-Zähler   |
 | `POST / DELETE` | `/api/push/subscribe`       | Push-Subscription registrieren / entfernen |
 | `POST`          | `/api/push/test`            | Test-Push an alle Subscriptions            |
 
@@ -263,7 +272,8 @@ curl -H "Authorization: Bearer $API_TOKEN" http://localhost:3000/api/noten
 | `/durchschnitt`             | Schnitt gesamt + pro Semester              |
 | `/heute` `/morgen` `/woche` | Stundenplan-Auszüge                        |
 | `/stundenplan`              | Bis 1 Monat (Multi-Message für „Alle")     |
-| `/scrape`                   | Manueller Scrape mit Live-Phase-Anzeige    |
+| `/abfrage`                  | Manuelle Abfrage mit Live-Phase-Anzeige    |
+| `/scrape`                   | Alias für `/abfrage`                       |
 | `/status`                   | Server-Status                              |
 
 ---
@@ -313,12 +323,13 @@ wissen/
 │   ├── server.js       Express-Composition + Boot
 │   ├── auth.js         Bearer-Token + Anti-Brute-Force
 │   ├── scheduler.js    Intervall- / Wochenplan-Logik
-│   ├── runScrape.js    Scrape-Cycle-Orchestrierung
-│   ├── scraper.js      Playwright Login + Scraping
+│   ├── runScrape.js    Abfrage-Cycle-Orchestrierung (quellen-neutral)
+│   ├── scraper.js      Playwright SSO-Login + DOM-Scraping (Fallback)
+│   ├── rest/           nice2 REST v2 + DWR (client, loginBridge, producer)
 │   ├── secretCrypto.js AES-256-GCM für settings.json-Secrets
 │   ├── push.js         Web-Push (VAPID, FCM / Mozilla / Apple)
 │   ├── routes/         12 Express-Route-Module
-│   ├── db/             SQLite-Layer (10 Module)
+│   ├── db/             SQLite-Layer (11 Module)
 │   └── bot/            Telegram-Bot (8 Module)
 ├── web-svelte/         V2-Frontend (SvelteKit 2 + Svelte 5 → dist/)
 ├── web/mobile/         Legacy PWA (Vanilla-JS + Service-Worker, /mobile/)
@@ -330,8 +341,15 @@ wissen/
 └── docker-compose.yml
 ```
 
-**Stack:** Node.js 22 · Express 5 · Playwright 1.59 · SQLite (`node:sqlite`) ·
+**Stack:** Node.js 22 · Express 5 · Playwright 1.61 · SQLite (`node:sqlite`) ·
 web-push · **SvelteKit 2 + Svelte 5** (V2-Dashboard) · Vanilla-JS-PWA für `/mobile/` (Legacy) · `node:test`
+
+**Datenquelle:** Default ist **nice2 REST v2** (`/nice2/rest/entities/2.0`) + **DWR**
+für Prüfungsgewichte (ZP / LB). Playwright übernimmt im REST-Pfad nur den SSO-Login
+und öffnet **einen** Tab auf der Noten-Seite (lädt die DWR-Engine für die
+`scriptSessionId`) — alle REST/DWR-Calls laufen same-origin im Browser-Kontext.
+DOM-Scraping bleibt als `DATA_SOURCE=scrape`-Fallback erhalten und liefert ein
+formgleiches Ergebnis, sodass DB-Layer, Diff und Push unverändert bleiben.
 
 ### SQLite-Tabellen
 
@@ -341,8 +359,8 @@ web-push · **SvelteKit 2 + Svelte 5** (V2-Dashboard) · Vanilla-JS-PWA für `/m
 | `noten_history`      | Append-only Verlauf jeder Modulnoten-Änderung                                         |
 | `noten_pruefungen`   | LB / ZP / OTHER pro Modul mit Gewicht                                                 |
 | `pruefungen_history` | Append-only Verlauf jeder ZP/LB-Änderung („4.0 → 4.5"-Diffs)                          |
-| `stundenplan`        | Termine mit Datum, Zeit, Raum, Dozent + Raumwechsel-Marker                            |
-| `absenzen`           | Anwesenheits-Übersicht pro Modul (Soll/Besucht-Lektionen, Min %, Ist %, Typ, Semester) |
+| `stundenplan`        | Termine mit Datum, Zeit, Raum, Dozent + Raumwechsel-Marker + Quelle (`source`: `rest` / `scrape`) |
+| `absenzen`           | Anwesenheits-Übersicht pro Modul (Soll/Besucht zählen nur stattgefundene Lektionen, Min %, Ist %, Typ, Semester) |
 | `absenzen_termine`   | Eine Zeile pro Lektion: Datum, Zeit, Status (teilgenommen / offen / abwesend entschuldigt · unentschuldigt) |
 | `push_subscriptions` | PWA-Push-Subscriptions (endpoint + Krypto-Keys)                                       |
 
@@ -358,9 +376,9 @@ web-push · **SvelteKit 2 + Svelte 5** (V2-Dashboard) · Vanilla-JS-PWA für `/m
 | Mobile-Push aktivieren geht nicht       | Mobile braucht **HTTPS** — LAN-IP funktioniert nicht (Browser-Sicherheit) |
 | iOS Push-Toggle ausgegraut              | PWA via Safari → „Zum Home-Bildschirm" installieren                       |
 | Brave-Push schlägt fehl                 | `brave://settings/privacy` → „Google-Dienste für Push" aktivieren         |
-| Stundenplan zeigt alte Einträge         | Settings → „DB zurücksetzen" → manueller Scrape                           |
+| Stundenplan zeigt alte Einträge         | Settings → „DB zurücksetzen" → manuelle Abfrage                           |
 | Wochen-Check soll erneut laufen         | `data/.weekly-detail-at` löschen + Restart                                |
-| Keine LB/ZP im Modul                    | Beim nächsten Scrape automatisch nachgezogen, manuell via `/api/scrape`   |
+| Keine LB/ZP im Modul                    | Bei der nächsten Abfrage automatisch nachgezogen, manuell via `/api/abfrage` |
 
 ---
 
