@@ -470,15 +470,15 @@ async function shutdown(signal) {
   // limitiert Scrapes ohnehin auf SCRAPE_TIMEOUT_MS, plus der 35s-hard-exit
   // unten greift falls hier irgendwas hängt.
   if (state.running) {
-    logger.log('⏳ Warte auf laufenden Scrape (bis 30s)...', 'info');
+    logger.log('⏳ Warte auf laufende Abfrage (bis 30s)...', 'info');
     const waitStart = Date.now();
     while (state.running && Date.now() - waitStart < 30000) {
       await new Promise(r => setTimeout(r, 500));
     }
     if (state.running) {
-      logger.log('⚠️  Scrape nach 30s noch aktiv — Shutdown fährt trotzdem fort', 'warn');
+      logger.log('⚠️  Abfrage nach 30s noch aktiv — Shutdown fährt trotzdem fort', 'warn');
     } else {
-      logger.log('✅ Scrape rechtzeitig beendet', 'info');
+      logger.log('✅ Abfrage rechtzeitig beendet', 'info');
     }
   }
 
