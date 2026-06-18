@@ -18,7 +18,8 @@ ENV NODE_ENV=production \
 
 # Pull latest security patches from Ubuntu + upgrade bundled npm
 # (fixes Trivy HIGH in /usr/lib/node_modules/npm: tar, minimatch, picomatch,
-#  and MEDIUM/LOW in openssl, libssl3, libudev1, libgdk-pixbuf, libcap2)
+#  and MEDIUM/LOW in openssl, libssl3, libudev1, libgdk-pixbuf, libcap2,
+#  libgraphite2 1.3.14-1ubuntu0.1 — CVE-2026-50593 integer-underflow / OOB read)
 # npm 11.17.0 also bundles brace-expansion 5.0.6 (CVE-2026-45149) and
 # tar 7.5.16 (node-tar PAX long-name/long-link header smuggling) — fixes the
 # two remaining Trivy MEDIUMs in /usr/lib/node_modules/npm.
@@ -33,7 +34,7 @@ ENV NODE_ENV=production \
 # the default below; bump it manually if you need a forced refresh.
 USER root
 ARG DEBIAN_FRONTEND=noninteractive
-ARG APT_REFRESH=2026-W19
+ARG APT_REFRESH=2026-W25
 # libc-bin's ldconfig post-install script intermittently SIGSEGVs (exit 139)
 # under qemu-user-static during the linux/arm64 leg of buildx multi-arch
 # builds. apt then aborts the whole `upgrade` with "Sub-process /usr/bin/dpkg
