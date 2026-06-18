@@ -71,8 +71,7 @@
   let formPort = $state(0);
   let formHeadless = $state(true);
 
-  // Telegram section open state — opened on first hydrate if enabled or token
-  // is set; otherwise stays closed. User can toggle freely afterward.
+  // Telegram section open state — defaults to closed; user opens it on demand.
   let telegramOpen = $state(false);
   // Erweitert nutzt dasselbe Collapse-Muster wie Telegram (eine Disclosure-
   // Sprache statt nativem <details> + Chevron), Default zu.
@@ -104,7 +103,6 @@
   }
 
   function hydrate(view: SettingsView): void {
-    const isFirstLoad = current === null;
     current = view;
     patch = {};
     formMsEmail = view.msEmail ?? '';
@@ -125,11 +123,6 @@
     formSlowMo = view.slowMo ?? 0;
     formPort = view.port ?? 0;
     formHeadless = !!view.headless;
-    // Open Telegram section only on initial load — never collapse/auto-open
-    // again on subsequent saves so user's manual collapse stays sticky.
-    if (isFirstLoad && (view.telegramEnabled || view.telegramTokenSet)) {
-      telegramOpen = true;
-    }
   }
 
   /** Build PATCH payload from form state vs current. Empty secrets dropped. */
