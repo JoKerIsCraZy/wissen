@@ -18,6 +18,7 @@ const {
   getUserContext, fetchEntity, pick, pickText, pickNum, display,
   getDwrSsid, dwrGetDetail, dwrSearch, parseDetail
 } = require('./client');
+const { normalizeAbsenzStatus } = require('../db/parsers');
 
 const ZURICH = 'Europe/Zurich';
 const DETAIL_CONCURRENCY = 6;
@@ -290,6 +291,7 @@ async function buildAbsenzen(page, pk, log) {
     const soll = pickNum(row, 'relReservation.duration_hour_actual');
     const ist = pickNum(row, 'duration_hour_actual');
     const statusRaw = pickText(row, 'relRegistration_accomplishment_status.label');
+    const statusCat = normalizeAbsenzStatus(statusRaw);
     (lessonsByReg[regPk] = lessonsByReg[regPk] || []).push({
       termin_iso: von ? von.datumIso : '',
       zeit_von: von ? von.zeit : '',
@@ -301,8 +303,17 @@ async function buildAbsenzen(page, pk, log) {
       status_raw: statusRaw || null
     });
     const s = (sums[regPk] = sums[regPk] || { soll: 0, besucht: 0 });
-    if (soll != null) s.soll += soll;
-    if (ist != null) s.besucht += ist;
+    // Nur STATTGEFUNDENE Lektionen (teilgenommen/abwesend) zählen in die
+    // Anwesenheits-Summe — offene/zukünftige NICHT. Sonst drückt jede noch
+    // nicht gehaltene Lektion die Anwesenheit unter 100 %, obwohl keine echte
+    // Absenz vorliegt. Damit ist anwesenheit_pct = besucht/soll = attended/
+    // occurred = Toccos presence_rate (= "100 % bis eine Absenz kommt", altes
+    // Verhalten). 'unbekannt' (kein Status) wird ebenfalls ausgeklammert.
+    const occurred = statusCat !== 'offen' && statusCat !== 'unbekannt';
+    if (occurred) {
+      if (soll != null) s.soll += soll;
+      if (ist != null) s.besucht += ist;
+    }
   }
 
   const absenzen = [];

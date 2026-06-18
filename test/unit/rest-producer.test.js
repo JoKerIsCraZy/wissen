@@ -150,7 +150,7 @@ function reservationRegistrationFixture() {
 // restGet      → args.url (Request-Pfad)
 // dwrGetDetail → args.ssid + args.pk
 // getDwrSsid   → keine args (nur fn)
-function makeMockPage() {
+function makeMockPage(opts = {}) {
   function jsonResponse(obj) {
     const text = JSON.stringify(obj);
     return { ok: true, status: 200, json: obj, text };
@@ -185,7 +185,7 @@ function makeMockPage() {
         }
         // Reservation_registration ZUERST prüfen (enthält '/Reservation').
         if (url.indexOf('/Reservation_registration') !== -1) {
-          return jsonResponse(reservationRegistrationFixture());
+          return jsonResponse(opts.rr || reservationRegistrationFixture());
         }
         if (url.indexOf('/Input_data') !== -1) return jsonResponse(inputDataFixture());
         if (url.indexOf('/Registration') !== -1) return jsonResponse(registrationFixture());
@@ -249,6 +249,44 @@ test('producer.run: Absenz-Row (kuerzel_code/typ)', async () => {
   assert.strictEqual(scraped.absenzen.length, 1);
   assert.strictEqual(scraped.absenzen[0].kuerzel_code, 'UIFZ-2524-020-S1-UEK-106');
   assert.strictEqual(scraped.absenzen[0].typ, 'GE Überbetrieblicher Kurs');
+});
+
+test('producer.run: offene Lektionen drücken die Anwesenheit NICHT (soll/besucht = nur stattgefunden)', async () => {
+  // 2× Teilgenommen (je 4h) + 2× Offen (je 4h, ist=null). Erwartung: soll/besucht
+  // zählen NUR die stattgefundenen → 8/8 (= 100 %), die offenen Lektionen drücken
+  // die Anwesenheit nicht unter 100 % (= Toccos presence_rate, altes Verhalten).
+  const lesson = (from, soll, ist, status) => ({
+    key: 'rr-' + from,
+    paths: {
+      relRegistration: entity({ pk: scalar('297250') }),
+      relReservation: entity({
+        date_from: scalar(from),
+        date_till: scalar(from),
+        duration_hour_actual: scalar(soll)
+      }),
+      duration_hour_actual: scalar(ist),
+      relRegistration_accomplishment_status: entity({ label: scalar(status) })
+    }
+  });
+  const mixedRR = {
+    data: [
+      lesson('2026-07-11T11:00:00.000Z', 4, 4, 'Teilgenommen'),
+      lesson('2026-07-12T11:00:00.000Z', 4, 4, 'Teilgenommen'),
+      lesson('2026-07-18T11:00:00.000Z', 4, null, 'Offen'),
+      lesson('2026-07-19T11:00:00.000Z', 4, null, 'Offen')
+    ]
+  };
+  const page = makeMockPage({ rr: mixedRR });
+  const scraped = await producer.run(page, { log: () => {} });
+
+  const abs = scraped.absenzen[0];
+  assert.strictEqual(abs.soll, 8);     // nur 2 stattgefundene × 4 (offen NICHT)
+  assert.strictEqual(abs.besucht, 8);  // beide teilgenommen → besucht/soll = 100 %
+
+  // Die Tagesliste enthält trotzdem ALLE 4 Lektionen (offene inkl.) — nur die
+  // Übersichts-Summe klammert sie aus.
+  const lektionen = await scraped.scrapeAbsenzenDetail('297250');
+  assert.strictEqual(lektionen.length, 4);
 });
 
 test('producer.run: scrapeAbsenzenDetail liefert Lektionen mit status_raw', async () => {
