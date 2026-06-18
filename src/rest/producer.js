@@ -56,7 +56,7 @@ async function mapLimit(items, limit, fn) {
   const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
     while (idx < items.length) {
       const i = idx++;
-      out[i] = await fn(items[i], i);
+      out[i] = await fn(items[i]);
     }
   });
   await Promise.all(workers);
