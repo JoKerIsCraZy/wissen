@@ -53,9 +53,11 @@ class LiveState {
     // Scraper emittiert — Noten + Stundenplan laufen zusammen unter 'noten'.
     // Label entsprechend zusammengefasst. Defensive Einträge für längst
     // unbenutzte Phasen ('note', 'modulnote', 'pruefung', 'detail') bleiben
-    // als Forward-Compat-Fallback bestehen.
+    // als Forward-Compat-Fallback bestehen. Der REST-Pfad emittiert
+    // 'rest_noten_page' (loginBridge) — als 'Daten' gelabelt statt roher ID.
     const map: Record<string, string> = {
       login: 'Login',
+      rest_noten_page: 'Daten',
       note: 'Noten',
       noten: 'Noten + Stundenplan',
       modulnote: 'Modulnoten',
