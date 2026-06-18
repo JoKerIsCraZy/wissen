@@ -3,8 +3,9 @@
    * /settings — Card-basierte Settings im Mobile-Look, auf Desktop-Breite
    * als Bento-Grid arrangiert.
    *
-   * Oben: prominente "Abfrage"-Status-Card (Live-Pill + Jetzt-abfragen-CTA +
-   * Phasen-Strip), gespeist aus dem globalen `live`-Store (SSE in +layout).
+   * Oben: prominente "Abfrage"-Status-Card (Live-Pill + Progress/Fehler),
+   * gespeist aus dem globalen `live`-Store (SSE in +layout). Der Abfrage-
+   * Trigger liegt im Header (Topbar), daher hier bewusst kein eigener CTA.
    * Darunter gruppierte Karten: Anmeldung, Automatik, Telegram, Erweitert,
    * Datenbank. Save via Speichern-Button oder Cmd/Ctrl+Enter aus jedem Feld.
    * DB-Reset: 2-stufiges Confirm (kein natives confirm()).
@@ -18,10 +19,8 @@
     getSettings,
     updateSettings,
     clearStundenplan,
-    resetDb,
-    triggerScrape as apiTriggerScrape
+    resetDb
   } from '$lib/api/endpoints';
-  import { ApiHttpError } from '$lib/api/client';
   import { live } from '$lib/stores/live.svelte';
   import { pushToast } from '$lib/stores/toast.svelte';
   import type {
@@ -34,7 +33,6 @@
   let patch = $state<SettingsPatch>({});
   let loading = $state(true);
   let saving = $state(false);
-  let scrapeBusy = $state(false);
 
   // DB-Reset (2-stage confirm) — persistent until user confirms or explicitly
   // cancels. Auto-revert is hostile and SR-invisible, so we keep state until
@@ -208,41 +206,6 @@
     }
   }
 
-  // ----- Abfrage manuell starten -----
-  // Spiegelt den Trigger-Flow aus +layout.svelte (Cooldown/Auth-Handling) und
-  // feuert dasselbe 'wissen:scrape'-Event, damit offene Views nachladen.
-  async function onTriggerScrape(): Promise<void> {
-    if (scrapeBusy || scrapeRunning) return;
-    scrapeBusy = true;
-    try {
-      const res = await apiTriggerScrape();
-      if (res?.triggered) {
-        pushToast('info', 'Abfrage gestartet.', { title: 'Abfrage' });
-      } else if (res?.reason) {
-        pushToast('warn', `Nicht gestartet: ${res.reason}`, { title: 'Abfrage' });
-      }
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('wissen:scrape'));
-      }
-    } catch (err) {
-      let msg = 'Fehler beim Starten';
-      if (err instanceof ApiHttpError) {
-        if (err.status === 429) {
-          const body = err.body as { retryInSec?: number; reason?: string } | null;
-          msg = body?.reason ?? `Cooldown — in ${body?.retryInSec ?? '?'}s erneut versuchen`;
-        } else if (err.status === 401) {
-          msg = 'Nicht authentifiziert';
-        } else {
-          msg = `Server-Fehler (${err.status})`;
-        }
-      } else if (err instanceof Error) {
-        msg = err.message;
-      }
-      pushToast('error', msg, { title: 'Abfrage fehlgeschlagen' });
-    } finally {
-      scrapeBusy = false;
-    }
-  }
 
   // Cmd/Ctrl+Enter speichert. Hot path on every keystroke — keep the early
   // exits cheapest-first (key + modifier) so non-shortcut keys cost ~nothing.
@@ -429,32 +392,6 @@
         </span>
       </div>
 
-      <button
-        type="button"
-        class="scrape__btn"
-        disabled={scrapeBusy || scrapeRunning}
-        onclick={() => void onTriggerScrape()}
-      >
-        {#if scrapeRunning}
-          <span class="scrape__spinner" aria-hidden="true"></span>
-          <span>Abfrage läuft…</span>
-        {:else}
-          <svg
-            viewBox="0 0 24 24"
-            width="16"
-            height="16"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2.4"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <polygon points="6 4 20 12 6 20 6 4" />
-          </svg>
-          <span>Jetzt abfragen</span>
-        {/if}
-      </button>
 
       {#if scrapeRunning}
         <div class="scrape__bar">
@@ -1161,25 +1098,6 @@
     100% { transform: scale(2.6); opacity: 0;    }
   }
   .scrape__lastrun { font-size: 12px; color: var(--text-dim); }
-  .scrape__btn {
-    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-    align-self: flex-start; padding: 11px 18px; border-radius: var(--r-md);
-    font-weight: 600; font-size: 14px;
-    background: var(--accent); color: var(--accent-ink); border: 1px solid var(--accent);
-    box-shadow: var(--shadow-sm); cursor: pointer;
-    transition: transform var(--t-fast) var(--ease), opacity var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
-  }
-  @media (hover: hover) and (pointer: fine) {
-    .scrape__btn:hover:not(:disabled) { background: var(--accent-hover); }
-  }
-  .scrape__btn:active:not(:disabled) { transform: scale(0.98); }
-  .scrape__btn:disabled { opacity: 0.55; cursor: not-allowed; }
-  .scrape__spinner {
-    width: 14px; height: 14px; border-radius: 50%;
-    border: 2px solid rgba(11, 18, 32, 0.25); border-top-color: rgba(11, 18, 32, 0.85);
-    animation: scrape-spin 0.8s linear infinite;
-  }
-  @keyframes scrape-spin { to { transform: rotate(360deg); } }
   .scrape__bar { position: relative; height: 6px; background: var(--surface-3); border-radius: 999px; overflow: hidden; }
   .scrape__bar-fill {
     position: absolute; inset: 0; border-radius: 999px;
@@ -1295,13 +1213,11 @@
   @media (prefers-reduced-motion: reduce) {
     .toggle__track, .toggle__thumb, .mode-opt span, .day-chip,
     .btn-danger, .btn-cancel, .btn-save, .row input, .time-add, .time-remove,
-    .card__chevron, .scrape__btn {
+    .card__chevron {
       transition: none;
     }
-    .btn-save:active:not(:disabled),
-    .scrape__btn:active:not(:disabled) { transform: none; }
+    .btn-save:active:not(:disabled) { transform: none; }
     .scrape__pill--running .scrape__dot::after,
-    .scrape__bar-fill,
-    .scrape__spinner { animation: none; }
+    .scrape__bar-fill { animation: none; }
   }
 </style>
