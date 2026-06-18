@@ -1,4 +1,6 @@
 ---
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+
 const features = [
   {
     icon: 'dashboard',
@@ -63,7 +65,7 @@ const features = [
 
   <div class="tm-features__grid">
     {features.map((f) => (
-      <a class="tm-feature" href={f.href} data-reveal>
+      <a class="tm-feature" href={`${base}${f.href}`} data-reveal>
         <span class="tm-feature__glow" aria-hidden="true"></span>
         <span class="tm-feature__icon">
           {f.icon === 'dashboard' && (
