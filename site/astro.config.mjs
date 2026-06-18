@@ -94,6 +94,12 @@ export default defineConfig({
           ],
         },
         {
+          label: 'Betrieb',
+          items: [
+            { label: 'Ins Internet freigeben', link: '/betrieb/internet-freigeben/' },
+          ],
+        },
+        {
           label: 'Features',
           items: [
             { label: 'Dashboard', link: '/features/dashboard/' },
