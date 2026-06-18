@@ -11,39 +11,59 @@
 
 /* ----- Phase metadata used by the scrape-card UI -----
  *
- * Seit dem Parallel-Fetch-Refactor laufen Noten + Stundenplan gleichzeitig
- * unter dem 'noten'-Phase-Indikator. Die separate 'stundenplan'-Phase wird
- * vom Scraper nicht mehr emittiert — sie ist aus PHASE_ORDER + Labels
- * entfernt. Defensive Mappings für 'stundenplan' werden NICHT als Safety
- * vorgehalten, weil das die Progress-Bar visuell verzerren würde
- * (activeIndex springt).
- *
- * 'absenzen_details' ist die LETZTE Phase (Absenz-Detail-Pass, nach
- * noten_details). MUSS in PHASE_ORDER stehen — sonst ist activeIndex=-1 wenn
- * der Scraper dort ist, kein Step wird aktiv und die Bar fällt auf 5% zurück.
- * Bei Autorun-Läufen, die NICHT der letzte des Tages sind, wird diese Phase
- * übersprungen — dann endet der Lauf nach 'Details' (Bar bei ~75 %), was ok
- * ist (die Card geht danach auf idle). */
-const PHASE_ORDER = ['browser', 'login', 'noten', 'saving', 'noten_details', 'absenzen_details'];
+ * Die Fortschritts-Anzeige zeigt bewusst nur DREI Schritte:
+ *   Browser → Login → Daten
+ * Der Scraper emittiert intern feinere Phasen ('noten', 'saving',
+ * 'noten_details', 'absenzen_details') — diese werden alle in den Schritt
+ * "Daten" gebündelt (siehe PHASE_STEP). So bleibt die Anzeige ruhig und
+ * verständlich, egal wie viele interne Sub-Pässe der Scraper durchläuft. */
+const PHASE_ORDER = ['browser', 'login', 'daten'];
+const PHASE_SHORT_LABELS = ['Browser', 'Login', 'Daten'];
+
+// Backend-Phase → Anzeige-Schritt-Index (0 = Browser, 1 = Login, 2 = Daten).
+// Alle Daten-Sub-Pässe mappen auf den gemeinsamen Schritt "Daten".
+//
+// Es laufen ZWEI Backends durch dieselbe Card:
+//   - DOM-Scraper (legacy): browser → login → noten → saving → *_details
+//   - REST-v2  (prod):       starting → browser → login* → rest_noten_page
+//                            → saving → noten_details → absenzen_details
+//     (*login feuert nur beim Frischlogin; gecachte Session überspringt ihn —
+//      ensureLoggedIn in src/scraper.js emittiert 'browser' immer, 'login' nur
+//      ohne gültigen storage.json-Cache.)
+// Beide Pfade emittieren ein echtes 'browser' (src/scraper.js:164), daher
+// leuchtet der Browser-Punkt ohne 'starting'→0-Mapping korrekt am Laufanfang.
+// REST emittiert zusätzlich 'rest_noten_page' (src/rest/loginBridge.js:58) —
+// das ist reines Daten-Laden und muss auf Schritt 2 (Daten) abgebildet werden.
+const PHASE_STEP = {
+  browser:          0,
+  login:            1,
+  noten:            2,
+  rest_noten_page:  2,  // REST: Noten-Seite + DWR-Engine laden → Daten
+  saving:           2,
+  noten_details:    2,
+  absenzen_details: 2,
+};
+
 const PHASE_LABELS = {
-  starting:      'Initialisiere…',
-  browser:       'Browser starten…',
-  login:         'Anmelden…',
-  noten:         'Noten + Stundenplan laden…',
-  saving:        'Speichern…',
-  noten_details: 'Modul-Details…',
-  absenzen_details: 'Absenzen-Details…'
+  starting:         'Initialisiere…',
+  browser:          'Browser starten…',
+  login:            'Anmelden…',
+  noten:            'Daten laden…',
+  rest_noten_page:  'Daten laden…',
+  saving:           'Daten laden…',
+  noten_details:    'Daten laden…',
+  absenzen_details: 'Daten laden…'
 };
 const PHASE_PILL_LABELS = {
-  starting:      'startet…',
-  browser:       'Browser…',
-  login:         'Login…',
-  noten:         'Noten + Plan…',
-  saving:        'Speichern…',
-  noten_details: 'Details…',
-  absenzen_details: 'Absenzen-Details…'
+  starting:         'startet…',
+  browser:          'Browser…',
+  login:            'Login…',
+  noten:            'Daten…',
+  rest_noten_page:  'Daten…',
+  saving:           'Daten…',
+  noten_details:    'Daten…',
+  absenzen_details: 'Daten…'
 };
-const PHASE_SHORT_LABELS = ['Browser', 'Login', 'Noten + Plan', 'Speich.', 'Details', 'Absenzen'];
 
 /* ============================================================
    Scrape-Card (Settings) — Status, Phase-Steps, Button, Progress.
@@ -119,7 +139,8 @@ function renderScrapeCard(container) {
     // Phasenliste, damit die Punkt-Mitte zur Fortschrittsbalken-Berechnung
     // unten (activeIndex / PHASE_ORDER.length) passt.
     steps.style.gridTemplateColumns = 'repeat(' + PHASE_ORDER.length + ', 1fr)';
-    const activeIndex = phase ? PHASE_ORDER.indexOf(phase) : -1;
+    // Backend-Phase auf einen der 3 Anzeige-Schritte mappen (Daten-Sub-Pässe → "Daten").
+    const activeIndex = (phase && PHASE_STEP[phase] != null) ? PHASE_STEP[phase] : -1;
     PHASE_ORDER.forEach((p, i) => {
       const step = document.createElement('div');
       step.className = 'm-scrape__step';
@@ -215,6 +236,9 @@ function formatElapsed(iso) {
 }
 
 async function triggerScrape() {
+  // Markiert diesen Lauf als MANUELL gestartet, damit updateStatus() nach
+  // Lauf-Ende eine Bestätigung zeigt (geplante/automatische Läufe nicht).
+  scrapeState.manualRunPending = true;
   // Optimistisches Update — Pill schaltet sofort, der nächste Status-Event
   // (SSE oder die /api/abfrage-Response) korrigiert ggf.
   scrapeState.status = Object.assign({}, scrapeState.status, {
@@ -224,6 +248,7 @@ async function triggerScrape() {
   try {
     const r = await apiFetch('/api/abfrage', { method: 'POST', body: {} });
     if (r && r.triggered === false) {
+      scrapeState.manualRunPending = false;
       // 200 mit reason → server hat NICHT gestartet, optimistisches Update zurückrollen
       if (r.reason === 'already_running') {
         toast('Abfrage läuft bereits');
@@ -242,6 +267,7 @@ async function triggerScrape() {
     }
     toast('Abfrage gestartet');
   } catch (e) {
+    scrapeState.manualRunPending = false;
     if (e.silent) return;
     // 429 cooldown response landet hier (apiFetch wirft bei 429)
     scrapeState.status = Object.assign({}, scrapeState.status, {
