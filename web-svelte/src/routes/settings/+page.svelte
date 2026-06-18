@@ -3,10 +3,7 @@
    * /settings — Card-basierte Settings im Mobile-Look, auf Desktop-Breite
    * als Bento-Grid arrangiert.
    *
-   * Oben: prominente "Abfrage"-Status-Card (Live-Pill + Progress/Fehler),
-   * gespeist aus dem globalen `live`-Store (SSE in +layout). Der Abfrage-
-   * Trigger liegt im Header (Topbar), daher hier bewusst kein eigener CTA.
-   * Darunter gruppierte Karten: Anmeldung, Automatik, Telegram, Erweitert,
+   * Gruppierte Karten: Anmeldung, Automatik, Telegram, Erweitert,
    * Datenbank. Save via Speichern-Button oder Cmd/Ctrl+Enter aus jedem Feld.
    * DB-Reset: 2-stufiges Confirm (kein natives confirm()).
    *
@@ -21,7 +18,6 @@
     clearStundenplan,
     resetDb
   } from '$lib/api/endpoints';
-  import { live } from '$lib/stores/live.svelte';
   import { pushToast } from '$lib/stores/toast.svelte';
   import type {
     SettingsView,
@@ -77,15 +73,6 @@
 
   // Tracks ob Settings-View urspruenglich UI-Credentials erlaubte.
   const allowUiCreds = $derived(current?.allowUiCredentials !== false);
-
-  // ----- Live "Abfrage"-Status (aus dem globalen SSE-Store) -----
-  const scrapeRunning = $derived(live.kind === 'running' || !!live.raw?.running);
-  const scrapeError = $derived(
-    !scrapeRunning && (live.kind === 'error' || !!live.raw?.lastError)
-  );
-  const pillLabel = $derived(
-    scrapeRunning ? 'läuft…' : scrapeError ? 'Fehler' : 'bereit'
-  );
 
   async function load(): Promise<void> {
     loading = true;
@@ -376,33 +363,6 @@
   <div class="loading mono">lädt…</div>
 {:else if current}
   <div class="settings-grid">
-    <!-- ============ Abfrage-Status (full-bleed, prominent) ============ -->
-    <section class="card card--scrape card--span" aria-label="Abfrage-Status">
-      <div class="scrape__top">
-        <span
-          class="scrape__pill"
-          class:scrape__pill--running={scrapeRunning}
-          class:scrape__pill--error={scrapeError}
-        >
-          <span class="scrape__dot"></span>
-          {pillLabel}
-        </span>
-        <span class="scrape__lastrun mono">
-          {scrapeRunning ? live.label : `Letzter Lauf · ${live.lastrun}`}
-        </span>
-      </div>
-
-
-      {#if scrapeRunning}
-        <div class="scrape__bar">
-          <div class="scrape__bar-fill"></div>
-        </div>
-        <p class="scrape__caption">{live.label}</p>
-      {:else if scrapeError && live.raw?.lastError}
-        <p class="scrape__error" role="alert">{String(live.raw.lastError).slice(0, 200)}</p>
-      {/if}
-    </section>
-
     <!-- ============ Anmeldung ============ -->
     <section class="card">
       <header class="card__head">
@@ -1067,59 +1027,6 @@
     .time-add:hover { color: var(--accent); border-color: var(--accent-border); }
   }
 
-  /* ============================================================
-     Abfrage-Status-Card (Mobile .m-scrape Sprache)
-     ============================================================ */
-  .card--scrape {
-    background: linear-gradient(180deg, var(--surface), var(--bg-elev));
-    gap: 14px;
-  }
-  .scrape__top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-  .scrape__pill {
-    display: inline-flex; align-items: center; gap: 8px;
-    padding: 6px 12px; border-radius: 999px;
-    background: var(--surface-2); border: 1px solid var(--border);
-    font-size: 13px; font-weight: 500; letter-spacing: 0.02em; color: var(--text-mute);
-    transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
-  }
-  .scrape__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-dim); position: relative; }
-  .scrape__pill--running { color: var(--accent); border-color: var(--accent-border); background: var(--accent-soft); }
-  .scrape__pill--running .scrape__dot { background: var(--accent); }
-  .scrape__pill--running .scrape__dot::after {
-    content: ''; position: absolute; inset: 0; border-radius: 50%;
-    background: var(--accent); transform-origin: center;
-    animation: scrape-pulse 1.6s var(--ease) infinite; pointer-events: none;
-  }
-  .scrape__pill--error { color: var(--danger); border-color: var(--danger-border); background: var(--danger-soft); }
-  .scrape__pill--error .scrape__dot { background: var(--danger); }
-  @keyframes scrape-pulse {
-    0%   { transform: scale(1);   opacity: 0.55; }
-    70%  { transform: scale(2.6); opacity: 0;    }
-    100% { transform: scale(2.6); opacity: 0;    }
-  }
-  .scrape__lastrun { font-size: 12px; color: var(--text-dim); }
-  .scrape__bar { position: relative; height: 6px; background: var(--surface-3); border-radius: 999px; overflow: hidden; }
-  .scrape__bar-fill {
-    position: absolute; inset: 0; border-radius: 999px;
-    background: linear-gradient(90deg, var(--accent), var(--success));
-    transform-origin: left;
-    animation: scrape-indeterminate 1.4s var(--ease) infinite;
-  }
-  /* Indeterminate sweep — der Desktop-Status-Store liefert keine Phase-Steps
-   * wie die Mobile-Card; ein laufender Sweep signalisiert "in Arbeit" ohne
-   * falschen Fortschritts-Prozentsatz vorzutäuschen. */
-  @keyframes scrape-indeterminate {
-    0%   { transform: translateX(-100%) scaleX(0.4); }
-    50%  { transform: translateX(0%)   scaleX(0.6); }
-    100% { transform: translateX(100%) scaleX(0.4); }
-  }
-  .scrape__caption { font-size: 12px; color: var(--text-mute); margin: 0; }
-  .scrape__error {
-    font-size: 12px; color: var(--danger);
-    background: var(--danger-soft); border: 1px solid var(--danger-border);
-    border-radius: var(--r-md); padding: 8px 10px; margin: 0;
-  }
-
   /* ===== Danger ===== */
   .danger-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 24px; }
   @media (max-width: 700px) { .danger-grid { grid-template-columns: minmax(0, 1fr); } }
@@ -1217,7 +1124,5 @@
       transition: none;
     }
     .btn-save:active:not(:disabled) { transform: none; }
-    .scrape__pill--running .scrape__dot::after,
-    .scrape__bar-fill { animation: none; }
   }
 </style>
