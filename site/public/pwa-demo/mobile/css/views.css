@@ -145,7 +145,7 @@
 
 .m-chips {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   overflow-x: auto;
   scrollbar-width: none;
   margin: 0 -14px;
@@ -155,12 +155,12 @@
 .m-chips::-webkit-scrollbar { display: none; }
 .m-chip {
   flex-shrink: 0;
-  padding: 7px 14px;
+  padding: 6px 11px;
   border-radius: 999px;
   background: var(--surface);
   border: 1px solid var(--border);
   color: var(--text-mute);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
   scroll-snap-align: start;
@@ -1000,3 +1000,36 @@ input[type="checkbox"]:checked + .m-switch::before { transform: translateX(18px)
 .m-mode-panel { display: contents; }
 
 /* Aktuell view (.m-now-card / .m-now-tile family) lives in css/now.css. */
+
+/* --- Absenzen + bottom-sheet (ported from web/mobile) ---
+   Die Absenzen-View (views/absenzen.js) + das Modul-Sheet (views/absenz-sheet.js)
+   wurden verbatim aus prod kopiert. Diese Klassen fehlten in der älteren Demo-CSS:
+   - .m-hero__metarow--alert: rote Tönung der „unter Minimum"-Meta-Zeile.
+   - .m-modul-statline: der Statline-Grid-Container, den das View-JS nutzt. In
+     der Demo wurde dieser Grid für die Stats-View nach .m-stats-card umbenannt;
+     das Absenz-Sheet (und das Noten-Sheet) referenzieren aber weiter
+     .m-modul-statline, deshalb hier 1:1 aus web/mobile als Basis ergänzt.
+     .m-stat / .m-stat__value / .m-stat__label existieren bereits in der Demo
+     und werden geteilt; .m-absenz-statline (cards.css) überschreibt auf 4 Spalten.
+   Nur angehängt — keine bestehende Demo-Regel verändert.
+   ============================================================ */
+
+/* Kritische Meta-Zeile (z. B. „X unter Minimum" > 0) — Zahl + Label rot.
+ * Semantische Tönung, greift im Absenzen-Hero. */
+.m-hero__metarow--alert,
+.m-hero__metarow--alert strong { color: var(--g-fail); }
+
+/* Modul-Detail statline-header — same flat philosophy as m-hero. No
+ * gradient container, no border; each stat sits in its own column,
+ * separated by a vertical hairline. Genutzt vom Absenz- und Noten-Sheet. */
+.m-modul-statline {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  padding: 8px 0 18px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.m-sheet__body .m-modul-statline {
+  margin-top: 0;
+}

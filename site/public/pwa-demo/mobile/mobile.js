@@ -237,6 +237,8 @@ const routes = {
   '/aktuell':     { title: 'Aktuell',       render: renderAktuell,     tab: 'aktuell',     hasBack: false },
   '/noten':       { title: 'Noten',         render: renderNoten,       tab: 'noten',       hasBack: false },
   '/stundenplan': { title: 'Stundenplan',   render: renderStundenplan, tab: 'stundenplan', hasBack: false },
+  '/stats':       { title: 'Statistik',     render: renderStats,       tab: 'stats',       hasBack: false },
+  '/absenzen':    { title: 'Absenzen',      render: renderAbsenzen,    tab: 'absenzen',    hasBack: false },
   '/settings':    { title: 'Einstellungen', render: renderSettings,    tab: 'settings',    hasBack: false }
 };
 
@@ -427,6 +429,12 @@ function updateStatus(status) {
   scrapeState.status = status;
   scrapeState.scraping = !!status.running;
   reRenderScrapeCardIfMounted();
+  // Lauf gerade beendet? Bei MANUELLER Abfrage eine Bestätigung zeigen.
+  if (wasRunning && !status.running && scrapeState.manualRunPending) {
+    scrapeState.manualRunPending = false;
+    if (status.lastError) toast('Abfrage fehlgeschlagen', 'err');
+    else toast('Abfrage erfolgreich abgeschlossen');
+  }
   // Wenn ein Scrape gerade beendet wurde und wir die Noten/Stundenplan-View
   // gerade offen haben → einmal frisch laden.
   if (wasRunning && !status.running && !status.lastError) {
@@ -460,6 +468,7 @@ let lastSWError = null;
 const scrapeState = {
   status: null,            // letzter Snapshot von /api/status
   scraping: false,
+  manualRunPending: false, // true ab manuellem "Jetzt abfragen" bis zur Bestätigung
   lastSeenRunId: null      // damit wir nach Scrape-Ende einmal Daten reloaden
 };
 let scrapeTimerHandle = null;

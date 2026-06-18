@@ -20,6 +20,7 @@
   <link rel="stylesheet" href="css/cards.css" />
   <link rel="stylesheet" href="css/views.css" />
   <link rel="stylesheet" href="css/now.css" />
+  <link rel="stylesheet" href="css/stats.css" />
   <link rel="stylesheet" href="css/responsive.css" />
   <link rel="stylesheet" href="../floorplans/raumview.css" />
 
@@ -114,6 +115,25 @@
       </span>
       <span class="m-tab__label">Plan</span>
     </a>
+    <a class="m-tab" href="#/stats" data-route="stats">
+      <span class="m-tab__icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="20" x2="18" y2="10"/>
+          <line x1="12" y1="20" x2="12" y2="4"/>
+          <line x1="6" y1="20" x2="6" y2="14"/>
+        </svg>
+      </span>
+      <span class="m-tab__label">Stats</span>
+    </a>
+    <a class="m-tab" href="#/absenzen" data-route="absenzen">
+      <span class="m-tab__icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 11l3 3L22 4"/>
+          <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+        </svg>
+      </span>
+      <span class="m-tab__label">Absenzen</span>
+    </a>
     <a class="m-tab" href="#/settings" data-route="settings">
       <span class="m-tab__icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -145,9 +165,12 @@
   <script src="views/modul.js" defer></script>
   <script src="views/modul-sheet.js" defer></script>
   <script src="views/noten.js" defer></script>
+  <script src="views/absenz-sheet.js" defer></script>
+  <script src="views/absenzen.js" defer></script>
   <script src="views/scrape.js" defer></script>
   <script src="views/push.js" defer></script>
   <script src="views/settings.js" defer></script>
+  <script src="views/stats.js" defer></script>
   <script src="mobile.js" defer></script>
 </body>
 </html>

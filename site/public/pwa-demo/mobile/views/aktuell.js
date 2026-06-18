@@ -31,8 +31,9 @@ const aktuellTileState = {
  *
  * Beim Dismiss: animiert das li transform translateX(-110%) + opacity 0,
  * collapsed dann die Höhe auf 0, ruft schließlich /api/dismiss und entfernt
- * das li aus dem DOM. */
-function attachSwipeToDismiss(li, btn, change) {
+ * das li aus dem DOM. `onDismissed(change)` wird optimistisch mitgerufen,
+ * damit der Caller abhängige UI (Tile-Header, Count-Badge) nachziehen kann. */
+function attachSwipeToDismiss(li, btn, change, onDismissed) {
   const reduceMotion = (() => {
     try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; }
     catch (_) { return false; }
@@ -150,6 +151,14 @@ function attachSwipeToDismiss(li, btn, change) {
         }
       });
     } catch (_) { /* ignore */ }
+
+    // Abhängige UI (Tile-Header mit Top-Eintrag + Count-Badge) sofort
+    // nachziehen — optimistisch, analog zur li-Entfernung oben. Ohne das
+    // zeigt der zugeklappte Header den entfernten Eintrag bis zum nächsten
+    // Voll-Re-Render (Seitenwechsel/Refresh).
+    if (typeof onDismissed === 'function') {
+      try { onDismissed(change); } catch (_) { /* ignore */ }
+    }
   }
 
   function snapBack() {
@@ -203,9 +212,66 @@ async function renderAktuell() {
     errorShell(e.message || 'Fehler beim Laden');
   }
 }
+// Static-analyser hint: renderAktuell is consumed by the router in mobile.js
+// (separate <script>). void-tag silences CodeQL's js/unused-local-variable.
+void renderAktuell;
+
+/* iOS-PWA-Install-Hint — Safari unterstützt keinen automatischen
+ * beforeinstallprompt; User muss manuell über "Teilen → Zum Home-
+ * Bildschirm" gehen. Wir blenden EINMAL einen dezenten Hinweis ein.
+ * Dismissal liegt in localStorage mit 30-Tage-Cooldown, damit der
+ * Hint nicht nach jedem Cache-Wipe wieder auftaucht. */
+const IOS_HINT_KEY = 'tocco.iosInstallHintDismissedAt';
+const IOS_HINT_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000; // 30 Tage
+
+function shouldShowIosInstallHint() {
+  try {
+    if (typeof window === 'undefined') return false;
+    // Bereits als PWA installiert → nichts zeigen
+    const standalone = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
+    const iosStandalone = window.navigator && window.navigator.standalone === true;
+    if (standalone || iosStandalone) return false;
+    // Nur iOS Safari interessiert uns — Android Chrome zeigt selbst einen Prompt
+    const ua = (window.navigator && window.navigator.userAgent) || '';
+    if (!/iPhone|iPad|iPod/.test(ua)) return false;
+    // 30-Tage-Cooldown
+    const lastDismiss = parseInt(localStorage.getItem(IOS_HINT_KEY) || '0', 10);
+    if (Number.isFinite(lastDismiss) && lastDismiss > 0) {
+      if (Date.now() - lastDismiss < IOS_HINT_COOLDOWN_MS) return false;
+    }
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function buildIosInstallHint() {
+  const banner = document.createElement('div');
+  banner.className = 'm-ios-hint';
+  banner.setAttribute('role', 'note');
+  banner.innerHTML =
+    '<span class="m-ios-hint__icon" aria-hidden="true">📱</span>' +
+    '<span class="m-ios-hint__text">' +
+      'Tipp: <strong>Teilen → Zum Home-Bildschirm</strong> — als App installieren' +
+    '</span>' +
+    '<button type="button" class="m-ios-hint__close" aria-label="Hinweis schließen">' +
+      '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        '<line x1="18" y1="6" x2="6" y2="18"/>' +
+        '<line x1="6" y1="6" x2="18" y2="18"/>' +
+      '</svg>' +
+    '</button>';
+  banner.querySelector('.m-ios-hint__close').addEventListener('click', () => {
+    try { localStorage.setItem(IOS_HINT_KEY, String(Date.now())); } catch (_) {}
+    banner.remove();
+  });
+  return banner;
+}
 
 function drawAktuell(planData, notenData) {
   main.replaceChildren();
+  if (shouldShowIosInstallHint()) {
+    main.append(buildIosInstallHint());
+  }
   const plan = (planData && planData.rows) || [];
   const noten = (notenData && notenData.rows) || [];
   const now = new Date();
@@ -257,6 +323,18 @@ function drawAktuell(planData, notenData) {
     if (Number.isFinite(ts)) freshChanges.push({ kind: 'plan', row: p, ts });
   });
   freshChanges.sort((a, b) => b.ts - a.ts);
+
+  // BK-Schnitt: dreistellige Modulnummer ohne Niveau-Suffixe (-Nx = Mathe, Englisch, …)
+  // Gleiche Logik wie stats/+page.svelte isBkModule.
+  function isBkRow(r) {
+    const code = r.kuerzel_code || '';
+    if (!code || /-N\d+$/i.test(code)) return false;
+    return /(?<!\d)\d{3}(?!\d)/.test(code);
+  }
+  const bkRows = noten.filter(r => isBkRow(r) && r.note != null);
+  const bkAvg = bkRows.length > 0
+    ? bkRows.reduce((s, r) => s + r.note, 0) / bkRows.length
+    : null;
 
   const RV = (typeof window !== 'undefined') ? window.RaumView : null;
 
@@ -310,9 +388,12 @@ function drawAktuell(planData, notenData) {
     if (currentEvent.raum) metaParts.push(currentEvent.raum);
     if (currentEvent.dozent) metaParts.push(currentEvent.dozent);
     card.querySelector('.m-now-card__meta').textContent = metaParts.join(' · ');
-    /* No Floor-Plan in the Now-card — the room is already in the meta line,
-     * and the same info lives one tap away in the Nächste-Lektion dropdown
-     * + the Heute-noch list. Avoid duplicating it here. */
+    /* Floor-Plan der laufenden Lektion direkt in der Aktuell-Card: zeigt auf
+     * einen Blick WO der User gerade hin muss/ist, ohne in den Stundenplan zu
+     * wechseln. buildFloorView gibt null bei Online-/unbekannten Räumen zurück
+     * — dann bleibt die Card schlank (nur die Meta-Zeile). */
+    const fp = buildFloorView(currentEvent.raum);
+    if (fp) card.append(fp);
   } else if (nextEventToday) {
     card.innerHTML =
       '<div class="m-now-card__lbl">Nächste Lektion</div>' +
@@ -373,6 +454,45 @@ function drawAktuell(planData, notenData) {
       if (fp) card.append(fp);
     }
   }
+  // Notenschnitt + BK-Schnitt — ganz oben, vor der Now-Card
+  const notenAvg = notenData && notenData.avg != null ? notenData.avg : null;
+  if (notenAvg != null) {
+    const schnittShell = document.createElement('div');
+    schnittShell.className = 'm-now-tile-shell m-schnitt-shell';
+    const strip = document.createElement('div');
+    strip.className = 'm-schnitt-strip';
+    strip.setAttribute('aria-label',
+      'Notenschnitt ' + notenAvg.toFixed(2)
+      + (bkAvg != null ? ', BK-Schnitt ' + bkAvg.toFixed(2) : ''));
+
+    const primary = document.createElement('div');
+    primary.className = 'm-schnitt-strip__item';
+    const primLbl = document.createElement('span');
+    primLbl.className = 'm-schnitt-strip__lbl';
+    primLbl.textContent = 'Notenschnitt';
+    const primVal = document.createElement('span');
+    primVal.className = 'm-schnitt-strip__val mono ' + gradeClass(notenAvg);
+    primVal.textContent = notenAvg.toFixed(2);
+    primary.append(primLbl, primVal);
+    strip.append(primary);
+
+    if (bkAvg != null) {
+      const bkItem = document.createElement('div');
+      bkItem.className = 'm-schnitt-strip__item';
+      const bkLbl = document.createElement('span');
+      bkLbl.className = 'm-schnitt-strip__lbl';
+      bkLbl.textContent = 'BK-Schnitt';
+      const bkVal = document.createElement('span');
+      bkVal.className = 'm-schnitt-strip__val mono ' + gradeClass(bkAvg);
+      bkVal.textContent = bkAvg.toFixed(2);
+      bkItem.append(bkLbl, bkVal);
+      strip.append(bkItem);
+    }
+
+    schnittShell.append(strip);
+    main.append(schnittShell);
+  }
+
   main.append(card);
 
   // Two living tiles
@@ -478,16 +598,22 @@ function drawAktuell(planData, notenData) {
     tilesWrap.append(shell);
   }
 
-  // Letzte Note — most-recently-fetched module that has a grade, regardless
-  // of isFresh. Mirrors the V2 dashboard's "Letzte Note" pill so both
-  // surfaces show the same module here. Tap → openModulSheet popup.
+  // Letzte Note — module whose grade was most recently recorded/changed,
+  // regardless of isFresh. Mirrors the V2 dashboard's "Letzte Note" pill so
+  // both surfaces show the same module here. Tap → openModulSheet popup.
+  //
+  // Sortier-Key ist note_recorded_at (aus noten_history — wird NUR bei echter
+  // Neuanlage/Wert-Änderung geschrieben), NICHT fetched_at: fetched_at wird
+  // bei jedem Scrape für jede Note neu gesetzt, wäre als "neueste"-Key also
+  // faktisch zufällig. fetched_at bleibt nur Fallback falls History fehlt.
   (function buildLastNoteTile() {
     let lastNote = null;
     let lastTs = -Infinity;
     for (let i = 0; i < noten.length; i += 1) {
       const n = noten[i];
       if (n.note == null) continue;
-      const ts = n.fetched_at ? new Date(n.fetched_at).getTime() : NaN;
+      const stamp = n.note_recorded_at || n.fetched_at;
+      const ts = stamp ? new Date(stamp).getTime() : NaN;
       if (!Number.isFinite(ts)) continue;
       if (ts > lastTs) { lastTs = ts; lastNote = n; }
     }
@@ -505,7 +631,7 @@ function drawAktuell(planData, notenData) {
       : (lastNote.note_raw && lastNote.note_raw.trim() ? lastNote.note_raw : '—');
     const num = modulNummerOf(lastNote.kuerzel_code) || '';
     const name = lastNote.fach_name || lastNote.kuerzel_full || '';
-    const when = fmtRelativePast(lastNote.fetched_at, now.getTime());
+    const when = fmtRelativePast(lastNote.note_recorded_at || lastNote.fetched_at, now.getTime());
 
     trigger.innerHTML =
       '<div class="m-now-tile__body">' +
@@ -544,73 +670,83 @@ function drawAktuell(planData, notenData) {
     const shell = document.createElement('div');
     shell.className = 'm-now-tile-shell';
 
-    const top = freshChanges[0] || null;
     const trigger = document.createElement('button');
     trigger.type = 'button';
     trigger.className = 'm-now-tile m-now-tile--btn';
-    trigger.disabled = freshChanges.length === 0;
     trigger.setAttribute('aria-expanded', 'false');
 
-    const lblHtml = '<div class="m-now-tile__lbl">Letzte Änderung'
-      + (freshChanges.length > 1 ? ' <span class="m-now-tile__count mono">' + freshChanges.length + '</span>' : '')
-      + '</div>';
+    // Trigger-Inhalt (Top-Eintrag + Count-Badge) als Funktion, damit der
+    // Einzel-Swipe-Dismiss den zugeklappten Header live nachziehen kann.
+    // Vorher wurde der Header nur einmal beim Build gerendert — ein
+    // weggeswipter Eintrag blieb dort bis zum nächsten Voll-Re-Render
+    // sichtbar (Seitenwechsel/Refresh). innerHTML-Neuaufbau ist safe:
+    // Event-Listener hängen am trigger-Element selbst, nicht an Kindern.
+    function renderTriggerContent() {
+      const top = freshChanges[0] || null;
+      trigger.disabled = freshChanges.length === 0;
 
-    let valHtml = '';
-    let subHtml = '';
-    let nameHtml = '';
-    if (!top) {
-      valHtml = '<div class="m-now-tile__val m-now-tile__val--empty">—</div>';
-      subHtml = '<div class="m-now-tile__sub">Nichts neu</div>';
-    } else if (top.kind === 'noten') {
-      // Modul-Note auf 2 Kommastellen formatieren — Tocco's note_raw
-      // liefert "5.500" was zu viel ist. note (REAL) ist die Quelle.
-      const noteText = top.row.note != null
-        ? top.row.note.toFixed(2)
-        : (top.row.note_raw && top.row.note_raw.trim() ? top.row.note_raw : '—');
-      valHtml = '<div class="m-now-tile__val"></div>';
-      subHtml = '<div class="m-now-tile__sub"></div>';
-      nameHtml = noteText;
-    } else {
-      valHtml = '<div class="m-now-tile__kind">Zimmerwechsel</div>';
-      subHtml = '<div class="m-now-tile__sub"></div>';
-    }
-    trigger.innerHTML =
-      '<div class="m-now-tile__body">' + lblHtml + valHtml + subHtml + '</div>'
-      + chevSvg;
+      const lblHtml = '<div class="m-now-tile__lbl">Letzte Änderung'
+        + (freshChanges.length > 1 ? ' <span class="m-now-tile__count mono">' + freshChanges.length + '</span>' : '')
+        + '</div>';
 
-    if (top && top.kind === 'noten') {
-      const valCell = trigger.querySelector('.m-now-tile__val');
-      // Diff-Anzeige im Top-Tile: prev_note → note wenn vorher ein anderer
-      // Wert gespeichert war. Sonst nur die aktuelle Note.
-      const topHasDiff = top.row.prev_note != null
-        && top.row.note != null
-        && top.row.prev_note !== top.row.note;
-      if (topHasDiff) {
-        const prevSpan = document.createElement('span');
-        prevSpan.className = 'm-now-tile__val-prev mono';
-        prevSpan.title = 'Vorheriger Wert';
-        prevSpan.textContent = Number(top.row.prev_note).toFixed(2);
-        const arrowSpan = document.createElement('span');
-        arrowSpan.className = 'm-now-tile__val-arrow';
-        arrowSpan.setAttribute('aria-hidden', 'true');
-        arrowSpan.textContent = '→';
-        const currSpan = document.createElement('span');
-        currSpan.className = 'm-now-tile__val-curr';
-        currSpan.textContent = nameHtml;
-        valCell.append(prevSpan, arrowSpan, currSpan);
+      let valHtml = '';
+      let subHtml = '';
+      let nameHtml = '';
+      if (!top) {
+        valHtml = '<div class="m-now-tile__val m-now-tile__val--empty">—</div>';
+        subHtml = '<div class="m-now-tile__sub">Nichts neu</div>';
+      } else if (top.kind === 'noten') {
+        // Modul-Note auf 2 Kommastellen formatieren — Tocco's note_raw
+        // liefert "5.500" was zu viel ist. note (REAL) ist die Quelle.
+        const noteText = top.row.note != null
+          ? top.row.note.toFixed(2)
+          : (top.row.note_raw && top.row.note_raw.trim() ? top.row.note_raw : '—');
+        valHtml = '<div class="m-now-tile__val"></div>';
+        subHtml = '<div class="m-now-tile__sub"></div>';
+        nameHtml = noteText;
       } else {
-        valCell.textContent = nameHtml;
+        valHtml = '<div class="m-now-tile__kind">Zimmerwechsel</div>';
+        subHtml = '<div class="m-now-tile__sub"></div>';
       }
-      // Sub-Zeile: Modulnummer + Modulname (konsistent zur Letzte-Änderung-
-      // Liste unten und zum Desktop-Dashboard).
-      const topModNum = modulNummerOf(top.row.kuerzel_code);
-      const topFach = (top.row.fach_name || top.row.kuerzel_code || '');
-      trigger.querySelector('.m-now-tile__sub').textContent =
-        (topModNum ? topModNum + ' - ' : '') + topFach;
-    } else if (top && top.kind === 'plan') {
-      trigger.querySelector('.m-now-tile__sub').textContent =
-        ((top.row.veranstaltung || '') + (top.row.raum ? ' · ' + top.row.raum : '')).trim();
+      trigger.innerHTML =
+        '<div class="m-now-tile__body">' + lblHtml + valHtml + subHtml + '</div>'
+        + chevSvg;
+
+      if (top && top.kind === 'noten') {
+        const valCell = trigger.querySelector('.m-now-tile__val');
+        // Diff-Anzeige im Top-Tile: prev_note → note wenn vorher ein anderer
+        // Wert gespeichert war. Sonst nur die aktuelle Note.
+        const topHasDiff = top.row.prev_note != null
+          && top.row.note != null
+          && top.row.prev_note !== top.row.note;
+        if (topHasDiff) {
+          const prevSpan = document.createElement('span');
+          prevSpan.className = 'm-now-tile__val-prev mono';
+          prevSpan.title = 'Vorheriger Wert';
+          prevSpan.textContent = Number(top.row.prev_note).toFixed(2);
+          const arrowSpan = document.createElement('span');
+          arrowSpan.className = 'm-now-tile__val-arrow';
+          arrowSpan.setAttribute('aria-hidden', 'true');
+          arrowSpan.textContent = '→';
+          const currSpan = document.createElement('span');
+          currSpan.className = 'm-now-tile__val-curr';
+          currSpan.textContent = nameHtml;
+          valCell.append(prevSpan, arrowSpan, currSpan);
+        } else {
+          valCell.textContent = nameHtml;
+        }
+        // Sub-Zeile: Modulnummer + Modulname (konsistent zur Letzte-Änderung-
+        // Liste unten und zum Desktop-Dashboard).
+        const topModNum = modulNummerOf(top.row.kuerzel_code);
+        const topFach = (top.row.fach_name || top.row.kuerzel_code || '');
+        trigger.querySelector('.m-now-tile__sub').textContent =
+          (topModNum ? topModNum + ' - ' : '') + topFach;
+      } else if (top && top.kind === 'plan') {
+        trigger.querySelector('.m-now-tile__sub').textContent =
+          ((top.row.veranstaltung || '') + (top.row.raum ? ' · ' + top.row.raum : '')).trim();
+      }
     }
+    renderTriggerContent();
 
     shell.append(trigger);
 
@@ -776,7 +912,23 @@ function drawAktuell(planData, notenData) {
       // dismiss oder snap-back. Click-Suppression: wenn dragMoved=true, wird
       // der Click in der Capture-Phase auf li gestoppt damit er die Modul-
       // Sheet / Stundenplan-Navigation nicht auslöst.
-      attachSwipeToDismiss(li, btn, c);
+      attachSwipeToDismiss(li, btn, c, (change) => {
+        // Eintrag aus dem Daten-Array nehmen und den zugeklappten Header
+        // (Top-Eintrag + Count-Badge) live nachziehen — sonst zeigt das
+        // Tile den weggeswipten Eintrag bis zum nächsten Voll-Re-Render.
+        const idx = freshChanges.indexOf(change);
+        if (idx !== -1) freshChanges.splice(idx, 1);
+        renderTriggerContent();
+        if (!freshChanges.length) {
+          // Letzter Eintrag entfernt → Leer-Zustand wie beim Build mit
+          // 0 Änderungen: Panel zu, Open-State vergessen (trigger ist via
+          // renderTriggerContent bereits disabled, Label zeigt "Nichts neu").
+          panel.hidden = true;
+          shell.classList.remove('m-now-tile-shell--open');
+          trigger.setAttribute('aria-expanded', 'false');
+          aktuellTileState.lastChangedOpen = false;
+        }
+      });
     });
 
     // Restore persisted open state so re-renders don't collapse the panel.

@@ -10,27 +10,59 @@
 'use strict';
 
 /* ----- Phase metadata used by the scrape-card UI -----
- * Seit dem Parallel-Fetch-Refactor laufen Noten + Stundenplan gleichzeitig
- * unter dem 'noten'-Phase-Indikator — die separate 'stundenplan'-Phase
- * wird vom Scraper nicht mehr emittiert. Synchron zu web/mobile/views/scrape.js. */
-const PHASE_ORDER = ['browser', 'login', 'noten', 'saving', 'noten_details'];
+ * Die Fortschritts-Anzeige zeigt bewusst nur DREI Schritte:
+ *   Browser → Login → Daten
+ * Interne Sub-Phasen ('noten', 'saving', 'noten_details', 'absenzen_details')
+ * werden alle in den Schritt "Daten" gebündelt (siehe PHASE_STEP).
+ * Synchron zu web/mobile/views/scrape.js. */
+const PHASE_ORDER = ['browser', 'login', 'daten'];
+const PHASE_SHORT_LABELS = ['Browser', 'Login', 'Daten'];
+
+// Backend-Phase → Anzeige-Schritt-Index (0 = Browser, 1 = Login, 2 = Daten).
+//
+// Es laufen ZWEI Backends durch dieselbe Card:
+//   - DOM-Scraper (legacy): browser → login → noten → saving → *_details
+//   - REST-v2  (prod):       starting → browser → login* → rest_noten_page
+//                            → saving → noten_details → absenzen_details
+//     (*login feuert nur beim Frischlogin; gecachte Session überspringt ihn —
+//      ensureLoggedIn in src/scraper.js emittiert 'browser' immer, 'login' nur
+//      ohne gültigen storage.json-Cache.)
+// Beide Pfade emittieren ein echtes 'browser' (src/scraper.js:164), daher
+// leuchtet der Browser-Punkt ohne 'starting'→0-Mapping korrekt am Laufanfang.
+// REST emittiert zusätzlich 'rest_noten_page' (src/rest/loginBridge.js:58) —
+// das ist reines Daten-Laden und muss auf Schritt 2 (Daten) abgebildet werden.
+// Der Demo-Mock emittiert 'browser' → 'login' → 'noten' (in dieser Reihenfolge),
+// diese drei bleiben auf 0/1/2 gemappt, damit die Demo weiterläuft.
+const PHASE_STEP = {
+  browser:          0,
+  login:            1,
+  noten:            2,
+  rest_noten_page:  2,  // REST: Noten-Seite + DWR-Engine laden → Daten
+  saving:           2,
+  noten_details:    2,
+  absenzen_details: 2,
+};
+
 const PHASE_LABELS = {
-  starting:      'Initialisiere…',
-  browser:       'Browser starten…',
-  login:         'Anmelden…',
-  noten:         'Noten + Stundenplan laden…',
-  saving:        'Speichern…',
-  noten_details: 'Modul-Details…'
+  starting:         'Initialisiere…',
+  browser:          'Browser starten…',
+  login:            'Anmelden…',
+  noten:            'Daten laden…',
+  rest_noten_page:  'Daten laden…',
+  saving:           'Daten laden…',
+  noten_details:    'Daten laden…',
+  absenzen_details: 'Daten laden…'
 };
 const PHASE_PILL_LABELS = {
-  starting:      'startet…',
-  browser:       'Browser…',
-  login:         'Login…',
-  noten:         'Noten + Plan…',
-  saving:        'Speichern…',
-  noten_details: 'Details…'
+  starting:         'startet…',
+  browser:          'Browser…',
+  login:            'Login…',
+  noten:            'Daten…',
+  rest_noten_page:  'Daten…',
+  saving:           'Daten…',
+  noten_details:    'Daten…',
+  absenzen_details: 'Daten…'
 };
-const PHASE_SHORT_LABELS = ['Browser', 'Login', 'Noten + Plan', 'Speich.', 'Details'];
 
 /* ============================================================
    Scrape-Card (Settings) — Status, Phase-Steps, Button, Progress.
@@ -102,7 +134,8 @@ function renderScrapeCard(container) {
   if (running) {
     const steps = document.createElement('div');
     steps.className = 'm-scrape__steps';
-    const activeIndex = phase ? PHASE_ORDER.indexOf(phase) : -1;
+    // Backend-Phase auf einen der 3 Anzeige-Schritte mappen (Daten-Sub-Pässe → "Daten").
+    const activeIndex = (phase && PHASE_STEP[phase] != null) ? PHASE_STEP[phase] : -1;
     PHASE_ORDER.forEach((p, i) => {
       const step = document.createElement('div');
       step.className = 'm-scrape__step';
@@ -198,6 +231,9 @@ function formatElapsed(iso) {
 }
 
 async function triggerScrape() {
+  // Markiert diesen Lauf als MANUELL gestartet, damit updateStatus() nach
+  // Lauf-Ende eine Bestätigung zeigt (geplante/automatische Läufe nicht).
+  scrapeState.manualRunPending = true;
   // Optimistisches Update — Pill schaltet sofort, der nächste Status-Event
   // (SSE oder die /api/abfrage-Response) korrigiert ggf.
   scrapeState.status = Object.assign({}, scrapeState.status, {
@@ -207,6 +243,7 @@ async function triggerScrape() {
   try {
     const r = await apiFetch('/api/abfrage', { method: 'POST', body: {} });
     if (r && r.triggered === false) {
+      scrapeState.manualRunPending = false;
       // 200 mit reason → server hat NICHT gestartet, optimistisches Update zurückrollen
       if (r.reason === 'already_running') {
         toast('Abfrage läuft bereits');
@@ -225,6 +262,7 @@ async function triggerScrape() {
     }
     toast('Abfrage gestartet');
   } catch (e) {
+    scrapeState.manualRunPending = false;
     if (e.silent) return;
     // 429 cooldown response landet hier (apiFetch wirft bei 429)
     scrapeState.status = Object.assign({}, scrapeState.status, {
