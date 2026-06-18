@@ -10,7 +10,7 @@
 # safe (a compromised tag does not auto-pull). Dependabot (docker ecosystem in
 # .github/dependabot.yml) opens a PR when Microsoft publishes a new digest, so
 # patches still flow in — just gated by review instead of silently picked up.
-FROM mcr.microsoft.com/playwright:v1.60.0-jammy@sha256:e1529a04087193966ea15d4a1617345bdaa0791690a24ab2c42b65f9ce5b2cdc AS base
+FROM mcr.microsoft.com/playwright:v1.61.0-jammy@sha256:264136758e43332108f6420f82c47f639f619ca65301065ceade677763f477ec AS base
 WORKDIR /app
 ENV NODE_ENV=production \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
@@ -19,6 +19,9 @@ ENV NODE_ENV=production \
 # Pull latest security patches from Ubuntu + upgrade bundled npm
 # (fixes Trivy HIGH in /usr/lib/node_modules/npm: tar, minimatch, picomatch,
 #  and MEDIUM/LOW in openssl, libssl3, libudev1, libgdk-pixbuf, libcap2)
+# npm 11.17.0 also bundles brace-expansion 5.0.6 (CVE-2026-45149) and
+# tar 7.5.16 (node-tar PAX long-name/long-link header smuggling) — fixes the
+# two remaining Trivy MEDIUMs in /usr/lib/node_modules/npm.
 # Also installs gosu for PUID/PGID privilege drop in the entrypoint.
 # DEBIAN_FRONTEND=noninteractive prevents tzdata's interactive geographic-area
 # prompt during `apt upgrade` from blocking the build.
@@ -55,7 +58,7 @@ RUN echo "apt-refresh=${APT_REFRESH}" \
  && gosu nobody true \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/* \
- && npm install -g npm@11.14.1 \
+ && npm install -g npm@11.17.0 \
  && npm cache clean --force
 
 # --------- deps: install production dependencies ---------
