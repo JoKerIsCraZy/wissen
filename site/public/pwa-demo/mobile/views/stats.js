@@ -1256,9 +1256,6 @@ function buildQvWhatIf(bk, me) {
 /* ------------------------------------------------------------------ */
 /* Helper                                                              */
 /* ------------------------------------------------------------------ */
-function num(v) {
-  return v != null && Number.isFinite(v) ? v : 0;
-}
 function isValid(v) {
   return v != null && Number.isFinite(v);
 }
