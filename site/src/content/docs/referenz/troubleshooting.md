@@ -3,12 +3,12 @@ title: Troubleshooting
 description: Häufige Probleme und deren Lösung.
 ---
 
-## Login & Scrape
+## Login & Abfrage
 
 ### Login schlägt fehl
 
 - Passwort und MFA prüfen
-- `HEADLESS=false` in `.env` setzen → sichtbares Chromium beim nächsten Scrape, du siehst direkt was schiefgeht
+- `HEADLESS=false` in `.env` setzen → sichtbares Chromium bei der nächsten Abfrage, du siehst direkt was schiefgeht
 
 ### `Executable doesn't exist` (Playwright)
 
@@ -18,14 +18,19 @@ npx playwright install chromium
 
 Im Docker-Image ist Chromium bereits dabei — dieser Fehler tritt nur bei lokaler Installation auf.
 
-### Scraper hängt minutenlang
+> Auch im REST-v2-Pfad (`DATA_SOURCE=rest`) braucht WISSen Chromium für den Microsoft-SSO-Login.
+
+### Abfrage hängt minutenlang
 
 - WISS / Tocco-Portal kann gerade langsam sein
-- Setze `DEBUG_SCRAPER=true` → bei Fehlern werden DOM-Dumps in `data/` geschrieben
+- Im DOM-Scraping-Fallback (`DATA_SOURCE=scrape`): `DEBUG_SCRAPER=true` → bei Fehlern werden DOM-Dumps in `data/` geschrieben
 
-### Tocco-Portal hat sich geändert (HTML-Layout)
+### Tocco-Portal hat sich geändert
 
-Selektoren in `src/scraper.js` und `src/db/parsers.js` brauchen Update. Issue mit DOM-Dump auf GitHub eröffnen.
+- **REST-v2-Pfad (Default):** Feld-Mappings in `src/rest/` (`client.js` / `producer.js`) brauchen ggf. ein Update
+- **DOM-Scraping-Fallback:** Selektoren in `src/scraper.js` und `src/db/parsers.js` brauchen Update
+
+Issue auf GitHub eröffnen (im Scraping-Fallback gern mit DOM-Dump).
 
 ## API & Auth
 
@@ -69,7 +74,7 @@ Hard-Refresh (`Ctrl+Shift+R` / Cmd+Shift+R) oder PWA deinstallieren + neu instal
 
 ### Stundenplan zeigt alte Einträge
 
-Im Stundenplan-Tab → **„DB zurücksetzen"** → manueller Scrape. Die Tabelle wird komplett neu aufgebaut.
+Im Stundenplan-Tab → **„DB zurücksetzen"** → manuelle Abfrage. Die Tabelle wird komplett neu aufgebaut.
 
 ### Wochen-Check soll erneut laufen
 
@@ -80,7 +85,7 @@ rm data/.weekly-detail-at
 
 ### Keine LB / ZP im Modul
 
-Beim nächsten Scrape wird's nachgezogen. Manuell: `/scrape` im Dashboard oder Telegram.
+Bei der nächsten Abfrage wird's nachgezogen. Manuell: „Jetzt abfragen" im Dashboard oder `/abfrage` in Telegram.
 
 ### `database is locked`
 
@@ -133,15 +138,15 @@ Du bist evtl. nicht der `TELEGRAM_ALLOWED_USER_ID`. Prüfe deine ID via [@userin
 
 ## Performance
 
-### Scrape dauert > 60 s
+### Abfrage dauert > 60 s
 
 - Tocco-Portal langsam — abwarten
 - `HEADLESS=false` + `SLOW_MO=100` für Debug
-- DOM-Dumps via `DEBUG_SCRAPER=true`
+- Im DOM-Scraping-Fallback: DOM-Dumps via `DEBUG_SCRAPER=true`
 
 ### Hohe CPU-Last während Idle
 
-Scheduler-Intervall zu kurz. In Settings auf 30 min oder mehr stellen — die Scrapes brauchen keine 5-Minuten-Granularität.
+Scheduler-Intervall zu kurz. In Settings auf 30 min oder mehr stellen — die Abfragen brauchen keine 5-Minuten-Granularität.
 
 ## Sonstiges
 

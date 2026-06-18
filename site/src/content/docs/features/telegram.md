@@ -41,7 +41,7 @@ Der Bot meldet sich beim Boot mit „🤖 WISSen bereit". Dann `/menu` schreiben
 | `/morgen` | Stundenplan morgen |
 | `/woche` | Stundenplan diese Woche |
 | `/stundenplan` | Bis 1 Monat (Multi-Message für „Alle") |
-| `/scrape` | Manueller Scrape mit Live-Phase-Anzeige |
+| `/abfrage` | Manuelle Abfrage mit Live-Phase-Anzeige (Alias: `/scrape`) |
 | `/status` | Server-Status + Scheduler-Info |
 
 ## Push-Benachrichtigungen via Telegram
@@ -74,7 +74,7 @@ LB2 (50%): 5.4
 
 ## Live-Phase-Anzeige
 
-`/scrape` zeigt den Scrape-Fortschritt in Echtzeit:
+`/abfrage` (Alias `/scrape`) zeigt den Abfrage-Fortschritt in Echtzeit:
 
 ```
 🔄 Login...

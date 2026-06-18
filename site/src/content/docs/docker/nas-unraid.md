@@ -80,7 +80,7 @@ chmod 750 ./data
 - PUID/PGID stimmen nicht → siehe Tabelle oben
 - Volume-Pfad auf NAS mit `chown -R 1000:1000` anpassen (falls SSH-Zugriff)
 
-### App stürzt beim Scrape ab — `Chromium failed to launch`
+### App stürzt beim Login / bei der Abfrage ab — `Chromium failed to launch`
 - NAS-Kernel zu alt für Chromium-Sandbox
 - Setze `PLAYWRIGHT_CHROMIUM_ARGS=--no-sandbox` (siehe [Deployment](/docker/deployment/#chromium-sandbox-probleme))
 

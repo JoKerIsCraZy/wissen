@@ -51,7 +51,7 @@ Das **WISSen Dashboard** ist eine moderne Single-Page-Application gebaut mit **S
 
 ### `/settings` — Konfiguration
 
-- Scraper-Intervall
+- Abfrage-Intervall
 - Telegram-Bot-Setup
 - Credentials (wenn `ALLOW_UI_CREDENTIALS=true`)
 - Theme (Light / Dark / System)

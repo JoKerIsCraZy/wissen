@@ -9,12 +9,27 @@ description: Modul-Layout, DB-Schema, Boot-Flow und Design-Entscheidungen.
 |---|---|
 | Runtime | Node.js 22 |
 | HTTP | Express 5 |
-| Browser | Playwright 1.59 (Chromium) |
+| Datenquelle | nice2 REST v2 + DWR (`DATA_SOURCE=rest`, Default) — DOM-Scraping als Fallback |
+| Browser | Playwright 1.59 (Chromium) — SSO-Login + 1 Engine-Tab |
 | DB | SQLite — nativ via `node:sqlite` |
 | Push | `web-push` |
 | V2-Frontend | SvelteKit 2 + Svelte 5 (`adapter-static`) |
 | V1-Frontend | Vanilla-JS-PWA unter `/mobile/` |
 | Tests | `node:test` |
+
+## Datenquelle: REST v2 + DWR
+
+Seit dem Go-Live ist die **nice2 REST v2 API** (+ DWR `getDetailData` für Prüfungsgewichte und den Stundenplan-Dozenten) die Standard-Datenquelle (`DATA_SOURCE=rest`). Das alte DOM-Scraping bleibt als Fallback via `DATA_SOURCE=scrape` erhalten.
+
+| Modul (`src/rest/`) | Aufgabe |
+|---|---|
+| `loginBridge.js` | Reuse des MS-SSO-Logins (`scraper.ensureLoggedIn`) + öffnet **einen** Engine-Tab (Noten-Seite), damit nice2 + DWR-Engine laden |
+| `client.js` | nice2-REST-v2- und DWR-RPC-Primitiven — laufen same-origin `IM Browser` (`page.evaluate`), damit die Session-Cookies automatisch greifen |
+| `producer.js` | Baut ein **formgleiches** Ergebnis-Objekt wie der DOM-Scraper (Noten, Stundenplan, Absenzen) — die Downstream-Pipeline (`runScrape.js`, `db/*`, Diff, Push) bleibt unverändert |
+
+**Playwright-Rolle im REST-Pfad:** kein DOM-Scraping mehr. Der Browser dient nur noch dem fragilen Microsoft-SSO-Login und hält **einen** eingeloggten Tab offen, über den die REST-/DWR-Calls (mit gültigen Session-Cookies) abgesetzt werden. Ein Cycle erledigt sich dadurch in Sekunden statt Minuten.
+
+Im Fallback-Pfad (`DATA_SOURCE=scrape`) lädt Playwright die Noten-/Stundenplan-/Absenzen-Seiten und extrahiert das DOM via `src/scraper.js` + `src/db/parsers.js`.
 
 ## Verzeichnis-Layout
 
@@ -25,14 +40,18 @@ wissen/
 │   ├── auth.js         Bearer-Token + Anti-Brute-Force
 │   ├── ratelimits.js   express-rate-limit-Instanzen
 │   ├── scheduler.js    Intervall- / Wochenplan-Logik
-│   ├── runScrape.js    Scrape-Cycle-Orchestrierung
+│   ├── runScrape.js    Abfrage-Cycle-Orchestrierung (datenquellen-neutral)
 │   ├── sse.js          Server-Sent-Events Broadcast
 │   ├── pushValidate.js SSRF-Allowlist für Push-Endpoints
 │   ├── secretCrypto.js AES-256-GCM für settings.json-Secrets
 │   ├── state.js        Geteilter Mutable-State
 │   ├── cli.js          CLI-Entry
 │   ├── settings.js     Settings-Persistenz (mit Encryption)
-│   ├── scraper.js      Playwright Login + Scraping
+│   ├── scraper.js      Playwright SSO-Login + DOM-Scraping (Fallback)
+│   ├── rest/           nice2 REST v2 + DWR Datenquelle (Default)
+│   │   ├── loginBridge.js  SSO-Login-Reuse + Engine-Tab
+│   │   ├── client.js       REST-v2- / DWR-RPC-Primitiven
+│   │   └── producer.js     formgleiches Ergebnis-Objekt
 │   ├── push.js         Web-Push (VAPID, FCM/Mozilla/Apple)
 │   ├── logger.js       Logging
 │   ├── routes/         12 Express-Route-Module
@@ -62,7 +81,7 @@ wissen/
 | `stundenplan.js` | `GET /api/stundenplan`, `POST .../clear` |
 | `absenzen.js` | `GET /api/absenzen`, `/:code/termine` |
 | `stats.js` | `GET /api/stats` |
-| `scrape.js` | `POST /api/scrape` |
+| `scrape.js` | `POST /api/abfrage` (kanonisch) + `POST /api/scrape` (deprecated Alias) |
 | `push.js` | VAPID, subscribe, test |
 | `logs.js` | `GET /api/logs` |
 | `events.js` | SSE `GET /api/events` |
@@ -124,6 +143,13 @@ DB-Connection ist seit v1.0.0 ein **Boot-Singleton** — Migrationen + `reclassi
 ```
 
 ## Design-Entscheidungen
+
+### Warum REST v2 + DWR statt DOM-Scraping?
+
+- **Robuster:** keine HTML-Selektoren mehr, die bei jedem Tocco-Layout-Update brechen
+- **Schneller:** ein Cycle dauert Sekunden statt Minuten (keine seitenweise DOM-Navigation)
+- **Formgleich:** `producer.js` liefert dasselbe Ergebnis-Objekt wie der alte Scraper — DB-Schema, Diff, History und Push bleiben unverändert
+- **Fallback bleibt:** `DATA_SOURCE=scrape` schaltet bei Bedarf zurück auf das bewährte DOM-Scraping
 
 ### Warum Vanilla-JS-PWA + SvelteKit-SPA?
 

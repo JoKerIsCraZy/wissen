@@ -16,7 +16,7 @@ npm install
 npm run setup                 # Playwright Chromium
 
 npm run serve                 # HTTP-Server auf :3000
-# oder einmal-Scrape:
+# oder einmal-Abfrage:
 npm start
 ```
 

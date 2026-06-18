@@ -1,25 +1,31 @@
 ---
 title: Stundenplan & Noten
-description: Wie der Scraper deine Noten und deinen Stundenplan holt — und was er damit anstellt.
+description: Wie WISSen deine Noten und deinen Stundenplan holt — und was es damit anstellt.
 ---
 
-Der Scraper-Layer ist das Herzstück von WISSen.
+Die Datenbeschaffung ist das Herzstück von WISSen.
 
-## Wie der Scraper funktioniert
+## Wie die Abfrage funktioniert
 
-1. **Playwright startet Chromium** (Headless oder sichtbar)
-2. **Microsoft-SSO-Login** mit deinen `MS_EMAIL` + `MS_PASSWORD`
-3. **Tocco-Noten-Seite** wird geladen + DOM extrahiert
-4. **Tocco-Stundenplan-Seite** wird geladen + DOM extrahiert
+Standard-Datenquelle ist die **nice2 REST v2 API** (+ DWR `getDetailData` für Prüfungsgewichte und den Stundenplan-Dozenten). Playwright dient nur noch dem Microsoft-SSO-Login und hält **einen** eingeloggten Tab offen, über den die REST-/DWR-Calls mit gültigen Session-Cookies laufen.
+
+1. **Microsoft-SSO-Login** via Playwright mit deinen `MS_EMAIL` + `MS_PASSWORD` (öffnet einen Engine-Tab, damit nice2 + DWR laden)
+2. **Noten** via REST v2 (`Input_data`) + DWR-`getDetailData` pro Modul (Prüfungen + Gewichte)
+3. **Stundenplan** via DWR-Suche (inkl. Dozent), Fallback auf reines REST (ohne Dozent)
+4. **Absenzen** via REST v2 (Übersicht + Lektionen pro Modul)
 5. **DB-Diff:** neue / geänderte Einträge werden erkannt
 6. **History wird angehängt** (append-only, nichts wird überschrieben)
 7. **Push-Notifications** für die Differenz werden ausgelöst
 
-## Scrape-Modi
+:::note[Datenquelle umschalten]
+`DATA_SOURCE=rest` (Default) nutzt REST v2 + DWR. `DATA_SOURCE=scrape` schaltet auf das alte DOM-Scraping als Fallback zurück. Siehe [Environment-Variablen](/konfiguration/env-variablen/#browser--datenquelle).
+:::
+
+## Abfrage-Modi
 
 ### Intervall-Modus (Default)
 
-Alle X Minuten ein vollständiger Scrape. Konfigurierbar im UI oder via Settings:
+Alle X Minuten eine vollständige Abfrage. Konfigurierbar im UI oder via Settings:
 
 ```json
 {
@@ -32,7 +38,7 @@ Alle X Minuten ein vollständiger Scrape. Konfigurierbar im UI oder via Settings
 
 ### Wochenplan-Modus
 
-Detaillierter Scrape (mit ZP/LB-Refresh) **einmal pro Woche**, ansonsten leichter Refresh. Spart Last auf dem Tocco-Portal.
+Detaillierte Abfrage (mit ZP/LB-Refresh) **einmal pro Woche**, ansonsten leichter Refresh. Spart Last auf dem Tocco-Portal.
 
 ```json
 {
@@ -46,11 +52,11 @@ Detaillierter Scrape (mit ZP/LB-Refresh) **einmal pro Woche**, ansonsten leichte
 
 Marker-Datei: `data/.weekly-detail-at` (löschen + Restart erzwingt erneuten Wochen-Check).
 
-### Manueller Scrape
+### Manuelle Abfrage
 
-- **Dashboard:** `/scrape` → „Jetzt scrapen"
-- **Telegram:** `/scrape` mit Live-Phase-Anzeige
-- **API:** `POST /api/scrape`
+- **Dashboard:** „Jetzt abfragen"
+- **Telegram:** `/abfrage` (Alias `/scrape`) mit Live-Phase-Anzeige
+- **API:** `POST /api/abfrage` (kanonisch; `POST /api/scrape` bleibt als deprecated Alias)
 
 ## Noten
 
@@ -103,7 +109,7 @@ Termine ohne festen Raum (z. B. Online-Unterricht via Teams) werden als **„Onl
 Wenn der Stundenplan altdatig wirkt:
 
 1. Dashboard → `/stundenplan` → „DB zurücksetzen"
-2. Manueller Scrape — die Tabelle wird komplett neu aufgebaut
+2. Manuelle Abfrage — die Tabelle wird komplett neu aufgebaut
 
 ## DB-Schema (Kurzfassung)
 
@@ -120,6 +126,6 @@ Detailliertes Schema: [Architektur](/referenz/architektur/).
 
 ## Performance
 
-- Ein voller Scrape dauert typisch **10–20 Sekunden** (abhängig vom Tocco-Portal)
+- Eine volle Abfrage (REST v2 + DWR) dauert typisch **wenige Sekunden** — deutlich schneller als das frühere DOM-Scraping (~10–20 s)
 - DB-Operationen sind **Singleton** seit v1.0.0 — kein Connection-Spam
 - Migrations + Reclassification laufen **einmal beim Boot**, nicht bei jedem Request
