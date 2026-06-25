@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - 'site/**'
+      # Desktop-Dashboard-Demo wird aus web-svelte/ in die Site gebaut —
+      # Änderungen dort müssen die Pages-Deployment ebenfalls auslösen.
+      - 'web-svelte/**'
       - '.github/workflows/site.yml'
   # Re-deploy when a release is published so the hero pill (and any other
   # version-derived content) picks up the new tag without a manual site edit.
@@ -42,7 +45,19 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
-          cache-dependency-path: site/package-lock.json
+          cache-dependency-path: |
+            site/package-lock.json
+            web-svelte/package-lock.json
+
+      # Desktop-Dashboard-Demo: das echte SvelteKit-Dashboard statisch bauen
+      # (BASE_PATH=/wissen/desktop-demo) + Mock-API-Layer injizieren. Output
+      # landet in site/public/desktop-demo/ → Astro kopiert es in dist/.
+      # MUSS vor "Build site" laufen (Astro liest public/ zur Build-Zeit).
+      - name: Build desktop-dashboard demo
+        working-directory: web-svelte
+        run: |
+          npm ci
+          npm run build:demo
 
       - name: Install dependencies
         run: |

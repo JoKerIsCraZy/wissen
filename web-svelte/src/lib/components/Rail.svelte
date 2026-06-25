@@ -41,7 +41,7 @@
     <div class="rail__mark" aria-hidden="true">
       <img
         class="rail__mark-img"
-        src="/assets/logo.webp"
+        src={`${base}/assets/logo.webp`}
         alt=""
         width="40"
         height="40"
