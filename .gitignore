@@ -92,6 +92,11 @@ web-svelte/dist/
 web-svelte/vite.config.ts.timestamp-*
 web-svelte/vite.config.js.timestamp-*
 
+# Desktop-Dashboard-Demo: im Site-CI aus web-svelte/ gebaut und nach
+# site/public/desktop-demo/ kopiert (siehe web-svelte/demo/). Build-Artefakt,
+# nicht committen. Der Mock-Layer (web-svelte/demo/desktop-mock.js) IST getrackt.
+site/public/desktop-demo/
+
 # TypeScript incremental build cache (per-package). Regenerated on every
 # `tsc --build`; never useful in a diff.
 *.tsbuildinfo
