@@ -3,28 +3,36 @@
    * /stats — Statistik-Übersicht.
    *
    * Quellen:
-   *   - GET /api/stats   -> StatsResponse (counts, avg, nextEvent, ...)
-   *   - GET /api/noten   -> NotenResponse (Detaildaten für Histogramm, sparkline,
-   *                         Schnitt nach Semester)
+   *   - GET /api/stats          -> StatsResponse (counts, avg, nextEvent, ...)
+   *   - GET /api/noten          -> NotenResponse (Detaildaten für Histogramm,
+   *                                Schnitt nach Semester)
+   *   - GET /api/noten/verlauf  -> VerlaufResponse (Schnitt-Verlauf-Zeitreihe)
    *
-   * Die Stats-API liefert keine Zeitreihe für eine Sparkline; statt eine zu
-   * faken, leiten wir sie aus den `fetched_at`-Timestamps der Noten ab. Wenn
-   * weniger als zwei verschiedene Tage existieren, blenden wir die Sparkline
-   * aus und zeigen stattdessen "n/a".
+   * Der Schnitt-Verlauf kommt jetzt fertig vom Server: `getNotenVerlauf`
+   * rekonstruiert eine Carry-forward-Zeitreihe aus `noten_history` (pro Tag
+   * das ungewichtete Mittel der je Modul zuletzt bekannten Note, letzter Punkt
+   * an den Headline-Schnitt gepinnt) — NICHT mehr aus den `fetched_at`-Stempeln
+   * der aktuellen Noten abgeleitet. Wir rendern die volle `points`-Serie
+   * ungeschnitten. Bei weniger als zwei Punkten blenden wir die Sparkline aus.
+   * Der Verlauf-Fetch ist entkoppelt (`.catch(() => null)`), sodass ein Fehler
+   * nur die Sparkline leert, nie die ganze Seite.
    */
 
   import { onMount, onDestroy } from 'svelte';
-  import { getStats, getNoten } from '$lib/api/endpoints';
+  import { fade } from 'svelte/transition';
+  import { getStats, getNoten, getNotenVerlauf } from '$lib/api/endpoints';
   import { pushToast } from '$lib/stores/toast.svelte';
   import { benoetigteIpa } from '$lib/utils/qv-goalseek.js';
   import type {
     StatsResponse,
     NotenResponse,
-    NotenRow
+    NotenRow,
+    VerlaufResponse
   } from '$lib/api/types';
 
   let stats = $state<StatsResponse | null>(null);
   let noten = $state<NotenResponse | null>(null);
+  let verlauf = $state<VerlaufResponse | null>(null);
   let loading = $state(true);
   let error = $state<string | null>(null);
 
@@ -48,13 +56,17 @@
     if (!opts.silent) loading = true;
     error = null;
     try {
-      const [s, n] = await Promise.all([
+      const [s, n, v] = await Promise.all([
         getStats({ signal }),
         getNoten({}, { signal }),
+        // Entkoppelt: ein Verlauf-Fehler (z.B. Endpoint fehlt beim Rollout,
+        // 429, offline) darf die restliche Stats-Seite nie mitreissen.
+        getNotenVerlauf({ signal }).catch(() => null),
       ]);
       if (signal.aborted) return;
       stats = s;
       noten = n;
+      verlauf = v;
     } catch (e) {
       if (signal.aborted) return;
       const msg = e instanceof Error ? e.message : 'Unbekannter Fehler';
@@ -112,9 +124,12 @@
   const maxBucket = $derived(Math.max(1, ...buckets));
 
   /**
-   * Sparkline: leitet einen rollierenden Durchschnitt aus den
-   * fetched_at-Tagen der Noten ab. Wenn die Datenbasis zu duenn ist,
-   * geben wir null zurueck und blenden die Sparkline aus.
+   * Sparkline: die fertige Carry-forward-Zeitreihe vom Server
+   * (`GET /api/noten/verlauf`). Wir rendern die volle `points`-Serie
+   * ungeschnitten — `day` wird auf `label`, `value` direkt uebernommen, sodass
+   * der gezeichnete Trend deckungsgleich mit dem Server-`trend` ist. Bei
+   * weniger als zwei Punkten geben wir null zurueck und blenden die Sparkline
+   * aus.
    */
   interface SparkPoint {
     label: string;
@@ -122,25 +137,8 @@
   }
 
   const sparkPoints = $derived.by<SparkPoint[] | null>(() => {
-    if (!noten) return null;
-    const dayBuckets = new Map<string, number[]>();
-    for (const row of noten.rows) {
-      if (row.note == null) continue;
-      const day = (row.fetched_at || '').slice(0, 10);
-      if (!day) continue;
-      const list = dayBuckets.get(day) ?? [];
-      list.push(row.note);
-      dayBuckets.set(day, list);
-    }
-    if (dayBuckets.size < 2) return null;
-    const sortedDays = [...dayBuckets.keys()].sort();
-    // Letzte 28 Tage
-    const days = sortedDays.slice(-28);
-    return days.map((d) => {
-      const list = dayBuckets.get(d)!;
-      const sum = list.reduce((a, b) => a + b, 0);
-      return { label: d, value: sum / list.length };
-    });
+    if (!verlauf || verlauf.points.length < 2) return null;
+    return verlauf.points.map((p) => ({ label: p.day, value: p.value }));
   });
 
   /** Trend: erster vs letzter Sparkline-Punkt. */
@@ -156,42 +154,126 @@
   const SPARK_H = 48;
   const SPARK_PAD = 4;
 
+  interface SparkGeomPoint {
+    x: number;
+    y: number;
+    day: string;
+    value: number;
+    count: number;
+  }
   interface SparkPath {
     line: string;
     fill: string;
+    pts: SparkGeomPoint[];
   }
 
   const sparkPath = $derived.by<SparkPath | null>(() => {
-    const pts = sparkPoints;
-    if (!pts || pts.length < 2) return null;
+    const vp = verlauf?.points;
+    if (!vp || vp.length < 2) return null;
     // Single-pass min/max — avoids `Math.min(...arr)` spread cost.
-    let min = pts[0].value;
+    let min = vp[0].value;
     let max = min;
-    for (let i = 1; i < pts.length; i++) {
-      const v = pts[i].value;
+    for (let i = 1; i < vp.length; i++) {
+      const v = vp[i].value;
       if (v < min) min = v;
       else if (v > max) max = v;
     }
     const range = max - min || 1;
     const innerW = SPARK_W - SPARK_PAD * 2;
     const innerH = SPARK_H - SPARK_PAD * 2;
-    const denom = pts.length - 1;
-    // Build line in a single pass; track first/last x for the fill closure.
+    const denom = vp.length - 1;
+    // Punkt-Koordinaten + Rohdaten in EINEM Pass aufbauen — der Hover-Readout
+    // liest `pts` (x/y im SVG-Koordinatenraum + day/value/count je Punkt).
     let line = '';
-    let firstX = 0;
-    let lastX = 0;
-    for (let i = 0; i < pts.length; i++) {
+    const pts: SparkGeomPoint[] = [];
+    for (let i = 0; i < vp.length; i++) {
       const x = SPARK_PAD + (i / denom) * innerW;
-      const t = (pts[i].value - min) / range;
+      const t = (vp[i].value - min) / range;
       const y = SPARK_PAD + (1 - t) * innerH;
       line += (i === 0 ? 'M' : 'L') + x.toFixed(2) + ',' + y.toFixed(2) + ' ';
-      if (i === 0) firstX = x;
-      lastX = x;
+      pts.push({ x, y, day: vp[i].day, value: vp[i].value, count: vp[i].count });
     }
+    const firstX = pts[0].x;
+    const lastX = pts[pts.length - 1].x;
     const baseY = (SPARK_H - SPARK_PAD).toFixed(2);
     const fill = line + `L${lastX.toFixed(2)},${baseY} L${firstX.toFixed(2)},${baseY} Z`;
-    return { line: line.trim(), fill: fill.trim() };
+    return { line: line.trim(), fill: fill.trim(), pts };
   });
+
+  // ----- Sparkline Hover/Focus-Readout -----
+  // Aktiver Punkt-Index; null = kein Hover/Fokus. Crosshair + Dot + Chip
+  // snappen OHNE Positions-Animation zum naechsten Datenpunkt (funktionaler
+  // Readout — Lag fuehlte sich falsch an). Nur das Ein-/Ausblenden faded.
+  let hoverIdx = $state<number | null>(null);
+
+  const activePoint = $derived(
+    hoverIdx != null && sparkPath && hoverIdx >= 0 && hoverIdx < sparkPath.pts.length
+      ? sparkPath.pts[hoverIdx]
+      : null
+  );
+
+  function sparkIdxFromX(clientX: number, el: HTMLElement): number | null {
+    if (!sparkPath) return null;
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0) return null;
+    const n = sparkPath.pts.length;
+    let idx = Math.round(((clientX - rect.left) / rect.width) * (n - 1));
+    if (idx < 0) idx = 0;
+    else if (idx > n - 1) idx = n - 1;
+    return idx;
+  }
+  function onSparkPointer(e: PointerEvent): void {
+    hoverIdx = sparkIdxFromX(e.clientX, e.currentTarget as HTMLElement);
+  }
+  function onSparkLeave(): void {
+    hoverIdx = null;
+  }
+  function onSparkKey(e: KeyboardEvent): void {
+    if (!sparkPath) return;
+    const n = sparkPath.pts.length;
+    let idx = hoverIdx ?? n - 1;
+    switch (e.key) {
+      case 'ArrowLeft':
+        idx = Math.max(0, idx - 1);
+        break;
+      case 'ArrowRight':
+        idx = Math.min(n - 1, idx + 1);
+        break;
+      case 'Home':
+        idx = 0;
+        break;
+      case 'End':
+        idx = n - 1;
+        break;
+      case 'Escape':
+        hoverIdx = null;
+        (e.currentTarget as HTMLElement).blur();
+        return;
+      default:
+        return;
+    }
+    e.preventDefault();
+    hoverIdx = idx;
+  }
+  function onSparkFocus(): void {
+    if (hoverIdx == null && sparkPath) hoverIdx = sparkPath.pts.length - 1;
+  }
+  function onSparkBlur(): void {
+    hoverIdx = null;
+  }
+
+  /** ISO `YYYY-MM-DD` -> `DD.MM.YYYY` (de). */
+  function fmtVerlaufDate(iso: string): string {
+    const p = iso.split('-');
+    return p.length === 3 ? `${p[2]}.${p[1]}.${p[0]}` : iso;
+  }
+  /** Readout-Chip horizontal am Punkt verankern, an den Raendern kippen
+   * (verhindert Overflow ueber die Plot-Kante). */
+  function readoutShift(x: number): string {
+    if (x < SPARK_W * 0.18) return '0%';
+    if (x > SPARK_W * 0.82) return '-100%';
+    return '-50%';
+  }
 
   /** CSS-Klasse fuer Note-Badge (passt zu --g-* Tokens). */
   function gradeClass(note: number | null): string {
@@ -663,17 +745,57 @@
         {@const sparkMin = sparkPoints.reduce((m, p) => (p.value < m ? p.value : m), sparkPoints[0].value)}
         {@const sparkMax = sparkPoints.reduce((m, p) => (p.value > m ? p.value : m), sparkPoints[0].value)}
         {@const sparkTrend = trend ?? 0}
-        <svg
-          viewBox="0 0 {SPARK_W} {SPARK_H}"
-          preserveAspectRatio="none"
-          class="spark-svg"
-          role="img"
-          aria-label={`Schnitt-Verlauf, ${sparkPoints.length} Tage, Trend ${sparkTrend >= 0 ? '+' : ''}${sparkTrend.toFixed(2)}, von ${sparkFirst.toFixed(2)} auf ${sparkLast.toFixed(2)}`}
+        {@const descIdx = hoverIdx ?? sparkPath.pts.length - 1}
+        {@const descPt = sparkPath.pts[descIdx]}
+        <div
+          class="spark-plot"
+          role="slider"
+          tabindex="0"
+          aria-orientation="horizontal"
+          aria-valuemin="0"
+          aria-valuemax={sparkPath.pts.length - 1}
+          aria-valuenow={descIdx}
+          aria-valuetext={`${fmtVerlaufDate(descPt.day)}: Schnitt ${descPt.value.toFixed(1)}, ${descPt.count} ${descPt.count === 1 ? 'Modul' : 'Module'}`}
+          aria-label={`Schnitt-Verlauf, ${sparkPoints.length} Tage, Trend ${sparkTrend >= 0 ? '+' : ''}${sparkTrend.toFixed(2)}, von ${sparkFirst.toFixed(2)} auf ${sparkLast.toFixed(2)}. Pfeiltasten links und rechts fuer einzelne Tageswerte.`}
+          onpointermove={onSparkPointer}
+          onpointerdown={onSparkPointer}
+          onpointerleave={onSparkLeave}
+          onkeydown={onSparkKey}
+          onfocus={onSparkFocus}
+          onblur={onSparkBlur}
         >
-          <desc>Minimum {sparkMin.toFixed(2)}, Maximum {sparkMax.toFixed(2)}.</desc>
-          <path d={sparkPath.fill} class="spark-fill" />
-          <path d={sparkPath.line} class="spark-line" />
-        </svg>
+          <svg
+            viewBox="0 0 {SPARK_W} {SPARK_H}"
+            preserveAspectRatio="none"
+            class="spark-svg"
+            aria-hidden="true"
+          >
+            <desc>Minimum {sparkMin.toFixed(2)}, Maximum {sparkMax.toFixed(2)}.</desc>
+            <path d={sparkPath.fill} class="spark-fill" />
+            <path d={sparkPath.line} class="spark-line" />
+          </svg>
+          {#if activePoint}
+            <div class="spark-overlay" transition:fade={{ duration: 120 }}>
+              <span class="spark-cross" style="left:{(activePoint.x / SPARK_W) * 100}%"></span>
+              <span
+                class="spark-dot"
+                style="left:{(activePoint.x / SPARK_W) * 100}%; top:{(activePoint.y / SPARK_H) * 100}%"
+              ></span>
+              <span
+                class="spark-readout"
+                style="left:{(activePoint.x / SPARK_W) * 100}%; --rx:{readoutShift(activePoint.x)}"
+              >
+                <span class="spark-readout__val mono {gradeClass(activePoint.value)}"
+                  >{activePoint.value.toFixed(1)}</span
+                >
+                <span class="spark-readout__meta mono"
+                  >{fmtVerlaufDate(activePoint.day)} · {activePoint.count}
+                  {activePoint.count === 1 ? 'Modul' : 'Module'}</span
+                >
+              </span>
+            </div>
+          {/if}
+        </div>
         {#if trend != null}
           <span class="spark-trend mono {trend >= 0 ? 'g-excellent' : 'g-fail'}">
             {trend >= 0 ? '+' : ''}{trend.toFixed(2)}
@@ -1230,8 +1352,20 @@
     gap: 14px;
     min-height: 56px;
   }
-  .spark-svg {
+  .spark-plot {
+    position: relative;
     flex: 1;
+    min-width: 0;
+    cursor: crosshair;
+    border-radius: var(--r-sm);
+    outline: none;
+  }
+  .spark-plot:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+  .spark-svg {
+    display: block;
     height: 48px;
     width: 100%;
     overflow: visible;
@@ -1242,10 +1376,66 @@
     stroke-width: 1.5;
     stroke-linecap: round;
     stroke-linejoin: round;
+    /* preserveAspectRatio="none" streckt die x-Achse → ohne dies waeren
+     * senkrechte Segmente dicker als waagrechte. non-scaling-stroke haelt den
+     * Strich ueberall gleich (Screen-Pixel statt User-Units). */
+    vector-effect: non-scaling-stroke;
   }
   .spark-fill {
     fill: var(--accent-soft);
     stroke: none;
+  }
+
+  /* Hover/Focus-Readout-Layer ueber dem Plot. Bewusst HTML-Overlay (nicht im
+   * SVG): preserveAspectRatio="none" streckt die x-Achse, ein SVG-Kreis wuerde
+   * zur Ellipse — ein HTML-Dot bleibt rund. Positionen snappen ohne Transition;
+   * nur das Ein-/Ausblenden faded (Svelte transition:fade, opacity-only =
+   * prefers-reduced-motion-sicher). */
+  .spark-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .spark-cross {
+    position: absolute;
+    top: -2px;
+    bottom: -2px;
+    width: 1px;
+    background: var(--accent-border);
+    transform: translateX(-0.5px);
+  }
+  .spark-dot {
+    position: absolute;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 2px var(--surface);
+    transform: translate(-50%, -50%);
+  }
+  .spark-readout {
+    position: absolute;
+    bottom: calc(100% + 7px);
+    translate: var(--rx, -50%) 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 5px 9px;
+    background: var(--surface-3);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    box-shadow: var(--shadow-md);
+    white-space: nowrap;
+    z-index: 2;
+  }
+  .spark-readout__val {
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.15;
+  }
+  .spark-readout__meta {
+    font-size: 11px;
+    color: var(--text-mute);
   }
   .spark-trend {
     font-size: 13px;

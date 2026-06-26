@@ -30,7 +30,8 @@ import type {
 	StundenplanClearResponse,
 	StundenplanQuery,
 	StundenplanResponse,
-	VapidKeyResponse
+	VapidKeyResponse,
+	VerlaufResponse
 } from './types';
 
 // ---------- Status ----------
@@ -84,6 +85,10 @@ export const getNotenHistory = (
 		`/history/${encodeURIComponent(kuerzelId)}`,
 		init
 	);
+
+/** GET /api/noten/verlauf */
+export const getNotenVerlauf = (init?: { signal?: AbortSignal }) =>
+	api<VerlaufResponse>('/noten/verlauf', init);
 
 /** GET /api/noten/:kuerzelId/pruefungen */
 export const getPruefungen = (
