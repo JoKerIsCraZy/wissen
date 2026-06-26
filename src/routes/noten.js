@@ -3,6 +3,8 @@
 const express = require('express');
 const { apiError } = require('../shared/apiError');
 const { getNotenStats } = require('../db/stats');
+const { round1 } = require('../db/parsers');
+const { DEFAULT_VERLAUF_DAYS, MAX_VERLAUF_DAYS } = require('../db/notenVerlauf');
 
 module.exports = function notenRoutes(deps) {
   const router = express.Router();
@@ -43,6 +45,44 @@ module.exports = function notenRoutes(deps) {
       });
     } catch (e) {
       logger.log('DB error at GET /api/noten: ' + (e && e.message ? e.message : e), 'error');
+      apiError(res, 500, 'Ein Datenbankfehler ist aufgetreten');
+    }
+  });
+
+  // ---------- Noten-Verlauf (carry-forward Schnitt-Trend) ----------
+  router.get('/api/noten/verlauf', (req, res) => {
+    let days = DEFAULT_VERLAUF_DAYS;
+    if (req.query.days != null) {
+      // Array-Param (?days=1&days=2) explizit ablehnen — parseInt würde sonst
+      // still das erste Element nehmen statt 400 zu liefern.
+      if (Array.isArray(req.query.days)) {
+        return apiError(res, 400, 'Ungültiger days-Parameter');
+      }
+      const d = parseInt(req.query.days, 10);
+      if (!Number.isFinite(d) || d <= 0) {
+        return apiError(res, 400, 'Ungültiger days-Parameter');
+      }
+      days = Math.min(d, MAX_VERLAUF_DAYS);
+    }
+
+    try {
+      const points = db.getNotenVerlauf(database, { days });
+      const stats = getNotenStats(database);
+      const first = points.length ? points[0].day : null;
+      const last = points.length ? points[points.length - 1].day : null;
+      const trend = points.length >= 2
+        ? round1(points[points.length - 1].value - points[0].value)
+        : null;
+      res.json({
+        points,
+        trend,
+        days,
+        first,
+        last,
+        fetchedAt: stats.lastFetchedNoten || null
+      });
+    } catch (e) {
+      logger.log('DB error at GET /api/noten/verlauf: ' + (e && e.message ? e.message : e), 'error');
       apiError(res, 500, 'Ein Datenbankfehler ist aufgetreten');
     }
   });

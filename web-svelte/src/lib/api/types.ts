@@ -178,6 +178,25 @@ export interface NotenHistoryResponse {
 	rows: NotenHistoryRow[];
 }
 
+export interface VerlaufPoint {
+	/** Tag (UTC), YYYY-MM-DD. */
+	day: string;
+	/** Carry-forward Ø-Note an diesem Tag (round1). */
+	value: number;
+	/** Anzahl benoteter Module an diesem Tag. */
+	count: number;
+}
+
+/** GET /api/noten/verlauf */
+export interface VerlaufResponse {
+	points: VerlaufPoint[];
+	trend: number | null;
+	days: number;
+	first: string | null;
+	last: string | null;
+	fetchedAt: string | null;
+}
+
 export type PruefungTyp = 'ZP' | 'LB' | 'OTHER' | (string & {});
 
 export interface PruefungRow {
