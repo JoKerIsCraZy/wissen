@@ -18,7 +18,7 @@ require.cache[statsPath] = {
   id: statsPath,
   filename: statsPath,
   loaded: true,
-  exports: { getNotenStats: (db) => stubStats(db) }
+  exports: { getNotenStats: () => stubStats() }
 };
 
 const notenFactory = require('../../src/routes/noten');
