@@ -249,7 +249,6 @@ function buildSparkCard(verlauf) {
         return;
       }
       if (idx > pts.length - 1) idx = pts.length - 1;
-      else if (idx < 0) idx = 0;
       if (idx === activeIdx) return;
       activeIdx = idx;
       const p = pts[idx];
