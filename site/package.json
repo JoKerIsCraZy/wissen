@@ -1,6 +1,6 @@
 {
   "name": "wissen-site",
-  "version": "2.2.0",
+  "version": "3.0.0",
   "private": true,
   "type": "module",
   "description": "Public docs + landing site for WISSen (Astro Starlight, deployed to GitHub Pages)",
