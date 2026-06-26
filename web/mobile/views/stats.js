@@ -48,11 +48,12 @@ async function renderStats() {
   titleEl.textContent = 'Statistik';
   skeletonShell('stats'); // unbekannte View → loadingShell-Fallback
   try {
-    const [statsData, notenData] = await Promise.all([
+    const [statsData, notenData, verlaufData] = await Promise.all([
       apiFetch('/api/stats'),
       apiFetch('/api/noten'),
+      apiFetch('/api/noten/verlauf').catch(() => null),
     ]);
-    drawStats(statsData, notenData);
+    drawStats(statsData, notenData, verlaufData);
   } catch (e) {
     if (e && e.silent) return;
     drawStatsEmpty(e && e.message);
@@ -82,7 +83,7 @@ function drawStatsEmpty(errMsg) {
   main.append(wrap);
 }
 
-function drawStats(stats, noten) {
+function drawStats(stats, noten, verlauf) {
   ensureQvDefaults();
   main.replaceChildren();
 
@@ -102,7 +103,7 @@ function drawStats(stats, noten) {
   wrap.className = 'm-stats';
 
   wrap.append(buildHero(totalModules, withGrade, withoutGrade, avg));
-  wrap.append(buildSparkCard(noten));
+  wrap.append(buildSparkCard(verlauf));
 
   const rows = (noten && noten.rows) || [];
   wrap.append(buildModstatCard(rows, totalModules, withGrade));
@@ -155,9 +156,10 @@ function statHeroMetaRow(num, label) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Sparkline-Card — leitet Tages-Schnitt aus fetched_at-Timestamps ab. */
+/* Sparkline-Card — rendert die server-seitige Carry-forward-Serie aus */
+/* GET /api/noten/verlauf (points[], ungeschnitten gezeichnet).        */
 /* ------------------------------------------------------------------ */
-function buildSparkCard(noten) {
+function buildSparkCard(verlauf) {
   const card = document.createElement('article');
   card.className = 'm-card m-stats-card m-stats-spark-card';
 
@@ -174,43 +176,124 @@ function buildSparkCard(noten) {
   const spark = document.createElement('div');
   spark.className = 'm-stats-spark';
 
-  const sparkPoints = computeSparkPoints(noten);
-  hint.textContent = 'letzte ' + (sparkPoints ? sparkPoints.length : 0) + ' Tage';
+  const geom = buildSparkGeom(verlauf);
+  hint.textContent = 'letzte '
+    + ((verlauf && Array.isArray(verlauf.points)) ? verlauf.points.length : 0)
+    + ' Tage';
 
-  const path = sparkPoints ? buildSparkPath(sparkPoints) : null;
-  if (path) {
-    const trend = sparkPoints[sparkPoints.length - 1].value - sparkPoints[0].value;
-    // Single-pass min/max für desc-Attribut
-    let min = sparkPoints[0].value;
-    let max = min;
-    for (let i = 1; i < sparkPoints.length; i += 1) {
-      const v = sparkPoints[i].value;
-      if (v < min) min = v;
-      else if (v > max) max = v;
-    }
-    const trendSign = trend >= 0 ? '+' : '';
-    const trendStr = trendSign + trend.toFixed(2);
+  if (geom) {
+    const pts = geom.pts;
+    const trend = pts[pts.length - 1].value - pts[0].value;
+    const trendStr = (trend >= 0 ? '+' : '') + trend.toFixed(2);
+
+    // Plot-Container: SVG-Linie + HTML-Overlay (Crosshair/Dot/Readout).
+    const plot = document.createElement('div');
+    plot.className = 'm-stats-spark__plot';
+    plot.setAttribute('role', 'img');
+    plot.setAttribute('tabindex', '0');
+    plot.setAttribute(
+      'aria-label',
+      'Schnitt-Verlauf, ' + pts.length + ' Tage, Trend ' + trendStr
+        + '. Wischen oder Pfeiltasten fuer einzelne Tageswerte.',
+    );
 
     const NS = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(NS, 'svg');
     svg.setAttribute('class', 'm-stats-spark__svg');
     svg.setAttribute('viewBox', '0 0 ' + SPARK_W + ' ' + SPARK_H);
     svg.setAttribute('preserveAspectRatio', 'none');
-    svg.setAttribute('role', 'img');
-    svg.setAttribute(
-      'aria-label',
-      'Schnitt-Verlauf, ' + sparkPoints.length + ' Tage, Trend ' + trendStr,
-    );
+    svg.setAttribute('aria-hidden', 'true');
     const desc = document.createElementNS(NS, 'desc');
-    desc.textContent = 'Minimum ' + min.toFixed(2) + ', Maximum ' + max.toFixed(2) + '.';
-    const fill = document.createElementNS(NS, 'path');
-    fill.setAttribute('class', 'm-stats-spark__fill');
-    fill.setAttribute('d', path.fill);
-    const line = document.createElementNS(NS, 'path');
-    line.setAttribute('class', 'm-stats-spark__line');
-    line.setAttribute('d', path.line);
-    svg.append(desc, fill, line);
-    spark.append(svg);
+    desc.textContent = 'Minimum ' + geom.min.toFixed(2) + ', Maximum ' + geom.max.toFixed(2) + '.';
+    const fillEl = document.createElementNS(NS, 'path');
+    fillEl.setAttribute('class', 'm-stats-spark__fill');
+    fillEl.setAttribute('d', geom.fill);
+    const lineEl = document.createElementNS(NS, 'path');
+    lineEl.setAttribute('class', 'm-stats-spark__line');
+    lineEl.setAttribute('d', geom.line);
+    svg.append(desc, fillEl, lineEl);
+    plot.append(svg);
+
+    // Overlay bewusst als HTML (nicht im SVG): preserveAspectRatio="none"
+    // streckt die x-Achse → ein SVG-Kreis wuerde zur Ellipse, ein HTML-Dot
+    // bleibt rund. Positionen snappen ohne Transition; nur das Ein-/Ausblenden
+    // faded (opacity, prefers-reduced-motion-sicher).
+    const overlay = document.createElement('div');
+    overlay.className = 'm-stats-spark__overlay';
+    const cross = document.createElement('span');
+    cross.className = 'm-stats-spark__cross';
+    const dot = document.createElement('span');
+    dot.className = 'm-stats-spark__dot';
+    const readout = document.createElement('span');
+    readout.className = 'm-stats-spark__readout';
+    const rVal = document.createElement('span');
+    rVal.className = 'm-stats-spark__readout-val mono';
+    const rMeta = document.createElement('span');
+    rMeta.className = 'm-stats-spark__readout-meta mono';
+    readout.append(rVal, rMeta);
+    overlay.append(cross, dot, readout);
+    plot.append(overlay);
+
+    // a11y: Punkt-Werte beim Scrubben ansagen.
+    const live = document.createElement('span');
+    live.className = 'm-visually-hidden';
+    live.setAttribute('aria-live', 'polite');
+    plot.append(live);
+
+    let activeIdx = -1;
+    function setActive(idx) {
+      if (idx < 0) {
+        plot.classList.remove('is-active');
+        activeIdx = -1;
+        live.textContent = '';
+        return;
+      }
+      if (idx > pts.length - 1) idx = pts.length - 1;
+      else if (idx < 0) idx = 0;
+      if (idx === activeIdx) return;
+      activeIdx = idx;
+      const p = pts[idx];
+      const leftPct = (p.x / SPARK_W) * 100 + '%';
+      cross.style.left = leftPct;
+      dot.style.left = leftPct;
+      dot.style.top = (p.y / SPARK_H) * 100 + '%';
+      readout.style.left = leftPct;
+      readout.style.setProperty('--rx', readoutShift(p.x));
+      rVal.className = 'm-stats-spark__readout-val mono ' + mGradeClass(p.value);
+      rVal.textContent = p.value.toFixed(1);
+      const modLabel = p.count === 1 ? ' Modul' : ' Module';
+      rMeta.textContent = fmtVerlaufDate(p.day) + ' · ' + p.count + modLabel;
+      live.textContent = fmtVerlaufDate(p.day) + ': Schnitt ' + p.value.toFixed(1)
+        + ', ' + p.count + modLabel;
+      plot.classList.add('is-active');
+    }
+    function idxFromClientX(clientX) {
+      const rect = plot.getBoundingClientRect();
+      if (rect.width <= 0) return -1;
+      let idx = Math.round(((clientX - rect.left) / rect.width) * (pts.length - 1));
+      if (idx < 0) idx = 0;
+      else if (idx > pts.length - 1) idx = pts.length - 1;
+      return idx;
+    }
+    plot.addEventListener('pointermove', function (e) { setActive(idxFromClientX(e.clientX)); });
+    plot.addEventListener('pointerdown', function (e) { setActive(idxFromClientX(e.clientX)); });
+    plot.addEventListener('pointerleave', function () { setActive(-1); });
+    plot.addEventListener('pointercancel', function () { setActive(-1); });
+    plot.addEventListener('pointerup', function (e) { if (e.pointerType === 'touch') setActive(-1); });
+    plot.addEventListener('blur', function () { setActive(-1); });
+    plot.addEventListener('keydown', function (e) {
+      let idx = activeIdx < 0 ? pts.length - 1 : activeIdx;
+      if (e.key === 'ArrowLeft') idx = Math.max(0, idx - 1);
+      else if (e.key === 'ArrowRight') idx = Math.min(pts.length - 1, idx + 1);
+      else if (e.key === 'Home') idx = 0;
+      else if (e.key === 'End') idx = pts.length - 1;
+      else if (e.key === 'Escape') { setActive(-1); plot.blur(); return; }
+      else return;
+      e.preventDefault();
+      setActive(idx);
+    });
+
+    spark.append(plot);
 
     const trendEl = document.createElement('span');
     trendEl.className = 'm-stats-spark__trend mono '
@@ -227,61 +310,59 @@ function buildSparkCard(noten) {
   return card;
 }
 
-/* Bucket-Aggregation pro Tag (slice(0,10) auf fetched_at). Mindestens 2
- * distinkte Tage notwendig — sonst hat eine "Linie" keine zwei Endpunkte. */
-function computeSparkPoints(noten) {
-  if (!noten || !Array.isArray(noten.rows)) return null;
-  const dayBuckets = new Map();
-  for (let i = 0; i < noten.rows.length; i += 1) {
-    const row = noten.rows[i];
-    if (row.note == null) continue;
-    const day = (row.fetched_at || '').slice(0, 10);
-    if (!day) continue;
-    const list = dayBuckets.get(day) || [];
-    list.push(row.note);
-    dayBuckets.set(day, list);
-  }
-  if (dayBuckets.size < 2) return null;
-  const sortedDays = Array.from(dayBuckets.keys()).sort();
-  const days = sortedDays.slice(-28);
-  return days.map((d) => {
-    const list = dayBuckets.get(d);
-    let sum = 0;
-    for (let j = 0; j < list.length; j += 1) sum += list[j];
-    return { label: d, value: sum / list.length };
-  });
-}
-
-/* Baut Line- + Fill-Path. Fill schließt die Linie auf die Baseline (unten)
- * — wird vor der Linie gezeichnet, damit die Linie obendrauf sichtbar bleibt. */
-function buildSparkPath(pts) {
-  if (!pts || pts.length < 2) return null;
-  let min = pts[0].value;
+/* Baut die volle Spark-Geometrie aus der server-seitigen Carry-forward-Serie
+ * (verlauf.points): pro Punkt x/y im SVG-Koordinatenraum + day/value/count
+ * fuer den Hover-Readout, plus Line- + Fill-Path. Die volle Serie wird
+ * gezeichnet (kein Client-Slice). Mindestens 2 Punkte notwendig. */
+function buildSparkGeom(verlauf) {
+  const vp = verlauf && Array.isArray(verlauf.points) ? verlauf.points : null;
+  if (!vp || vp.length < 2) return null;
+  let min = vp[0].value;
   let max = min;
-  for (let i = 1; i < pts.length; i += 1) {
-    const v = pts[i].value;
+  for (let i = 1; i < vp.length; i += 1) {
+    const v = vp[i].value;
     if (v < min) min = v;
     else if (v > max) max = v;
   }
   const range = max - min || 1;
   const innerW = SPARK_W - SPARK_PAD * 2;
   const innerH = SPARK_H - SPARK_PAD * 2;
-  const denom = pts.length - 1;
+  const denom = vp.length - 1;
   let line = '';
-  let firstX = 0;
-  let lastX = 0;
-  for (let i = 0; i < pts.length; i += 1) {
+  const pts = [];
+  for (let i = 0; i < vp.length; i += 1) {
     const x = SPARK_PAD + (i / denom) * innerW;
-    const t = (pts[i].value - min) / range;
+    const t = (vp[i].value - min) / range;
     const y = SPARK_PAD + (1 - t) * innerH;
     line += (i === 0 ? 'M' : 'L') + x.toFixed(2) + ',' + y.toFixed(2) + ' ';
-    if (i === 0) firstX = x;
-    lastX = x;
+    pts.push({ x: x, y: y, day: vp[i].day, value: vp[i].value, count: vp[i].count });
   }
   const baseY = (SPARK_H - SPARK_PAD).toFixed(2);
-  const fill = line + 'L' + lastX.toFixed(2) + ',' + baseY
-    + ' L' + firstX.toFixed(2) + ',' + baseY + ' Z';
-  return { line: line.trim(), fill: fill.trim() };
+  const fill = line + 'L' + pts[pts.length - 1].x.toFixed(2) + ',' + baseY
+    + ' L' + pts[0].x.toFixed(2) + ',' + baseY + ' Z';
+  return { pts: pts, line: line.trim(), fill: fill.trim(), min: min, max: max };
+}
+
+/* SVG-Notenfarbklasse fuer den Readout-Wert (spiegelt die Desktop-gradeClass). */
+function mGradeClass(v) {
+  if (v == null) return '';
+  if (v >= 5.0) return 'm-grade--excellent';
+  if (v >= 4.5) return 'm-grade--good';
+  if (v >= 4.0) return 'm-grade--ok';
+  return 'm-grade--fail';
+}
+
+/* ISO `YYYY-MM-DD` -> `DD.MM.YYYY` (de). */
+function fmtVerlaufDate(iso) {
+  const p = String(iso).split('-');
+  return p.length === 3 ? p[2] + '.' + p[1] + '.' + p[0] : iso;
+}
+
+/* Readout-Chip horizontal am Punkt verankern, an den Raendern kippen. */
+function readoutShift(x) {
+  if (x < SPARK_W * 0.18) return '0%';
+  if (x > SPARK_W * 0.82) return '-100%';
+  return '-50%';
 }
 
 /* ------------------------------------------------------------------ */
