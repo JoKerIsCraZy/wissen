@@ -1,0 +1,314 @@
+---
+// Live, interaktive Desktop-Dashboard-Demo in einem Browser-/Laptop-Frame.
+// Nutzt /desktop-demo/ — das echte SvelteKit-Dashboard, statisch gebaut und
+// per Mock-API-Layer (desktop-mock.js) ohne Backend betrieben.
+//
+// Anders als das Handy ist das Dashboard dicht + keyboard-first, also gibt es
+// zusätzlich einen "Vollbild öffnen"-Link auf die eigenständige Demo-Seite.
+//
+// Visueller Stil spiegelt LiveDemoPhone (Notch→Browser-Chrome, Drop-Shadow,
+// Ambient-Glow, Click-Shield). Das Iframe selbst wird nicht animiert.
+//
+// Props (optional):
+//   - id:       Anchor-ID für Hash-Links (default: 'desktop-demo')
+//   - showCopy: Side-Narrative anzeigen (default: true)
+
+interface Props {
+  id?: string;
+  showCopy?: boolean;
+}
+
+const { id = 'desktop-demo', showCopy = true } = Astro.props;
+
+// Desktop-Demo liegt nach dem Build unter {base}/desktop-demo/. Auf GitHub
+// Pages ist base = '/wissen' → BASE_URL prefixen (hardcoded /desktop-demo/
+// würde sonst auf 404 zeigen).
+// Verzeichnis-Form mit Trailing-Slash (NICHT /index.html): der SvelteKit-
+// Client-Router des Dashboards würde den Pfad ".../index.html" als unbekannte
+// Route behandeln und seine eigene 404-Seite zeigen. ".../desktop-demo/" löst
+// er dagegen als Home-Route auf (base + '/').
+const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, '');
+const demoSrc = `${baseUrl}/desktop-demo/`;
+const demoHref = `${baseUrl}/desktop-demo/`;
+---
+
+<section class="tm-deck" id={id}>
+  {showCopy && (
+    <div class="tm-deck__copy" data-reveal>
+      <span class="tm-eyebrow">Desktop-Dashboard · Live Demo</span>
+      <h2 class="tm-deck__title">Das volle Control-Center — so wie du es selbst hosten würdest.</h2>
+      <p class="tm-deck__text">
+        Der Browser unten ist <strong>kein Screenshot</strong>, sondern das echte
+        SvelteKit-Dashboard von WISSen, das direkt im Browser läuft. Alle Daten
+        sind Beispiel-Daten, alle Interaktionen sind real: Routen wechseln,
+        Module öffnen, Stundenplan + Raumplan, Absenzen, Auswertung, Settings.
+      </p>
+      <ul class="tm-deck__list">
+        <li><span class="tm-bullet">●</span> <strong>Aktuell</strong> → laufende Lektion, Inline-Raumplan, „Letzte Änderung"</li>
+        <li><span class="tm-bullet">●</span> <strong>Noten</strong> → Modul antippen → ZP/LB-Prüfungen + Verlauf</li>
+        <li><span class="tm-bullet">●</span> Tastatur: <kbd>g</kbd> dann <kbd>n</kbd>/<kbd>s</kbd>/<kbd>b</kbd>, <kbd>⌘K</kbd> Command-Palette, <kbd>r</kbd> Abfrage</li>
+        <li><span class="tm-bullet">●</span> Oben rechts <strong>Abfragen</strong> → simulierter Scrape-Lauf live</li>
+      </ul>
+      <div class="tm-deck__actions">
+        <a href={demoHref} target="_blank" rel="noopener" class="tm-btn-primary">
+          Vollbild öffnen <span aria-hidden="true">↗</span>
+        </a>
+        <a href={`${baseUrl}/start/quick-start/`} class="tm-link-arrow">Selber installieren <span aria-hidden="true">→</span></a>
+        <a href={`${baseUrl}/features/dashboard/`} class="tm-link-arrow">Dashboard-Doku <span aria-hidden="true">→</span></a>
+      </div>
+    </div>
+  )}
+
+  <div class={`tm-deck__visual${showCopy ? '' : ' tm-deck__visual--solo'}`} data-reveal>
+    <div class="tm-browser" aria-label="Live Demo des WISSen Desktop-Dashboards">
+      <div class="tm-browser__bar" aria-hidden="true">
+        <span class="tm-browser__dot tm-browser__dot--r"></span>
+        <span class="tm-browser__dot tm-browser__dot--y"></span>
+        <span class="tm-browser__dot tm-browser__dot--g"></span>
+        <span class="tm-browser__url">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
+          </svg>
+          localhost:3000 · WISSen Dashboard
+        </span>
+        <span class="tm-browser__badge">
+          <span class="tm-browser__badge-dot"></span>
+          Demo · Mock-Daten
+        </span>
+      </div>
+
+      <div class="tm-browser__screen">
+        <iframe
+          src={demoSrc}
+          title="WISSen Desktop-Dashboard — Live Demo"
+          loading="lazy"
+          referrerpolicy="no-referrer"
+          class="tm-browser__iframe"
+        ></iframe>
+
+        <!-- Click-shield: das Iframe fängt sonst das Mausrad ein. Erst nach
+             Klick "in" interaktiv, Klick ausserhalb (oder ESC) gibt frei. -->
+        <button class="tm-browser__shield" type="button" aria-label="Demo aktivieren — klicken zum Interagieren">
+          <span class="tm-browser__shield-hint">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="10"/><polyline points="9 8 14 12 9 16"/>
+            </svg>
+            Klick zum Interagieren
+          </span>
+        </button>
+      </div>
+    </div>
+
+    <div class="tm-deck__glow" aria-hidden="true"></div>
+  </div>
+</section>
+
+<style>
+  /* ==== Layout ==== */
+  .tm-deck {
+    padding: clamp(3rem, 5vw, 6rem) clamp(1rem, 4vw, 2.5rem);
+    max-width: 82rem;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2.5rem;
+    align-items: center;
+    scroll-margin-top: 2rem;
+  }
+  @media (min-width: 980px) {
+    .tm-deck { grid-template-columns: 0.85fr 1.15fr; gap: 3.5rem; }
+  }
+
+  .tm-deck__copy,
+  .tm-deck__visual {
+    transition: opacity 700ms ease, transform 700ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  html.tm-anim .tm-deck__copy[data-reveal]:not(.is-visible)   { opacity: 0; transform: translateX(-20px); }
+  html.tm-anim .tm-deck__visual[data-reveal]:not(.is-visible) { opacity: 0; transform: translateY(24px); }
+
+  .tm-deck__visual { position: relative; display: flex; justify-content: center; }
+  .tm-deck__visual--solo { margin: 0 auto; max-width: 64rem; }
+
+  .tm-eyebrow {
+    display: inline-block;
+    font-family: var(--sl-font-mono);
+    font-size: 0.78rem; font-weight: 600;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--tm-indigo-300);
+    background: color-mix(in oklab, var(--tm-indigo-500) 12%, transparent);
+    border: 1px solid color-mix(in oklab, var(--tm-indigo-500) 30%, transparent);
+    padding: 0.25rem 0.7rem; border-radius: 999px;
+  }
+  :root[data-theme='light'] .tm-eyebrow {
+    color: var(--tm-indigo-700);
+    background: color-mix(in oklab, var(--tm-indigo-500) 10%, transparent);
+  }
+
+  .tm-deck__title {
+    font-size: clamp(1.75rem, 1.3rem + 1.5vw, 2.6rem);
+    line-height: 1.1; font-weight: 800; letter-spacing: -0.035em;
+    margin: 0.65rem 0 1rem;
+  }
+  .tm-deck__text {
+    color: var(--sl-color-gray-2);
+    font-size: 1.025rem; line-height: 1.6; margin: 0 0 1.25rem;
+  }
+  .tm-deck__list {
+    list-style: none; padding: 0; margin: 0 0 1.5rem;
+    display: flex; flex-direction: column; gap: 0.5rem;
+    font-size: 0.95rem; color: var(--sl-color-gray-2);
+  }
+  .tm-deck__list kbd {
+    font-family: var(--sl-font-mono); font-size: 0.78em;
+    background: color-mix(in oklab, var(--tm-indigo-500) 14%, transparent);
+    border: 1px solid color-mix(in oklab, var(--tm-indigo-500) 30%, transparent);
+    border-radius: 5px; padding: 0.05em 0.4em; color: var(--tm-indigo-200);
+  }
+  :root[data-theme='light'] .tm-deck__list kbd { color: var(--tm-indigo-800); }
+  .tm-bullet { color: var(--tm-indigo-400); margin-right: 0.45rem; font-size: 0.55em; vertical-align: middle; }
+  :root[data-theme='light'] .tm-bullet { color: var(--tm-indigo-600); }
+
+  .tm-deck__actions { display: flex; flex-wrap: wrap; gap: 1rem 1.25rem; align-items: center; }
+  .tm-btn-primary {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    background: var(--tm-indigo-500); color: #fff; font-weight: 600;
+    text-decoration: none; padding: 0.6rem 1.1rem; border-radius: 10px;
+    box-shadow: 0 8px 24px -8px color-mix(in oklab, var(--tm-indigo-500) 70%, transparent);
+    transition: background 180ms ease, transform 180ms ease;
+  }
+  .tm-btn-primary:hover { background: var(--tm-indigo-400); transform: translateY(-1px); }
+  .tm-link-arrow {
+    color: var(--tm-indigo-300); font-weight: 600; text-decoration: none;
+    border-bottom: 1px solid color-mix(in oklab, var(--tm-indigo-400) 40%, transparent);
+    padding-bottom: 2px; transition: color 180ms ease, border-color 180ms ease;
+  }
+  .tm-link-arrow:hover { color: var(--tm-indigo-200); border-bottom-color: var(--tm-indigo-300); }
+  :root[data-theme='light'] .tm-link-arrow {
+    color: var(--tm-indigo-700);
+    border-bottom-color: color-mix(in oklab, var(--tm-indigo-600) 35%, transparent);
+  }
+  :root[data-theme='light'] .tm-link-arrow:hover { color: var(--tm-indigo-900); }
+
+  /* ==== Browser/Laptop frame ==== */
+  .tm-browser {
+    position: relative; z-index: 1; width: 100%; max-width: 56rem;
+    border-radius: 14px; overflow: hidden;
+    background: #0f1115;
+    border: 1px solid color-mix(in oklab, #fff 9%, transparent);
+    box-shadow:
+      0 1px 0 1px rgba(255, 255, 255, 0.03) inset,
+      0 40px 90px -30px rgba(0, 0, 0, 0.75),
+      0 0 110px -20px color-mix(in oklab, var(--tm-indigo-500) 38%, transparent);
+  }
+  .tm-browser__bar {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.55rem 0.85rem;
+    background: linear-gradient(180deg, #1b1d24, #14161c);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  .tm-browser__dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
+  .tm-browser__dot--r { background: #ff5f57; }
+  .tm-browser__dot--y { background: #febc2e; }
+  .tm-browser__dot--g { background: #28c840; }
+  .tm-browser__url {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    margin-left: 0.6rem;
+    font-family: var(--sl-font-mono); font-size: 0.72rem;
+    color: var(--sl-color-gray-3);
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 7px; padding: 0.25rem 0.7rem;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  }
+  .tm-browser__badge {
+    margin-left: auto; display: inline-flex; align-items: center; gap: 0.4rem;
+    font-family: var(--sl-font-mono); font-size: 0.66rem; font-weight: 600;
+    color: var(--sl-color-white);
+    background: color-mix(in oklab, var(--tm-violet-500) 22%, transparent);
+    border: 1px solid color-mix(in oklab, var(--tm-violet-500) 45%, transparent);
+    border-radius: 999px; padding: 0.2rem 0.6rem; white-space: nowrap;
+  }
+  .tm-browser__badge-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #4ade80; box-shadow: 0 0 8px #4ade80;
+    animation: tm-deck-pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes tm-deck-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  .tm-browser__screen {
+    position: relative; width: 100%; aspect-ratio: 16 / 10;
+    background: #0f1115; isolation: isolate;
+  }
+  .tm-browser__iframe {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    border: 0; background: #0f1115; color-scheme: dark; display: block;
+  }
+
+  .tm-browser__shield {
+    position: absolute; inset: 0; z-index: 4; cursor: pointer;
+    background: linear-gradient(180deg, rgba(10, 10, 15, 0) 65%, rgba(10, 10, 15, 0.5) 100%);
+    display: flex; align-items: flex-end; justify-content: center;
+    padding-bottom: 18px; border: 0; transition: opacity 220ms ease;
+  }
+  .tm-browser__shield-hint {
+    display: inline-flex; align-items: center; gap: 0.45rem;
+    background: rgba(15, 17, 21, 0.9);
+    border: 1px solid color-mix(in oklab, var(--tm-indigo-500) 50%, transparent);
+    color: var(--sl-color-white);
+    font-family: var(--sl-font-mono); font-size: 0.72rem; font-weight: 600;
+    padding: 0.4rem 0.75rem; border-radius: 999px;
+    backdrop-filter: blur(6px);
+    box-shadow: 0 0 24px -4px color-mix(in oklab, var(--tm-indigo-500) 60%, transparent);
+    pointer-events: none;
+  }
+  .tm-browser__shield-hint svg { color: var(--tm-indigo-300); }
+  .tm-browser[data-active='true'] .tm-browser__shield { opacity: 0; pointer-events: none; }
+
+  .tm-deck__glow {
+    position: absolute; inset: 8% 4%;
+    background: radial-gradient(ellipse at center,
+      color-mix(in oklab, var(--tm-violet-500) 32%, transparent), transparent 70%);
+    filter: blur(70px); z-index: 0; pointer-events: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tm-browser__badge-dot { animation: none !important; }
+    html.tm-anim .tm-deck__copy[data-reveal]:not(.is-visible),
+    html.tm-anim .tm-deck__visual[data-reveal]:not(.is-visible) {
+      opacity: 1 !important; transform: none !important;
+    }
+  }
+</style>
+
+<script>
+  // Reveal-on-scroll
+  const els = document.querySelectorAll<HTMLElement>('.tm-deck__copy[data-reveal], .tm-deck__visual[data-reveal]');
+  if ('IntersectionObserver' in window) {
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting) { e.target.classList.add('is-visible'); io.unobserve(e.target); }
+        }
+      },
+      { threshold: 0.15 }
+    );
+    els.forEach((el) => io.observe(el));
+  } else {
+    els.forEach((el) => el.classList.add('is-visible'));
+  }
+
+  // Click-to-activate / click-out-to-release shield over the iframe.
+  document.querySelectorAll<HTMLElement>('.tm-browser').forEach((frame) => {
+    const shield = frame.querySelector<HTMLButtonElement>('.tm-browser__shield');
+    if (!shield) return;
+    shield.addEventListener('click', (e) => { e.stopPropagation(); frame.dataset.active = 'true'; });
+    document.addEventListener('click', (e) => {
+      if (frame.dataset.active !== 'true') return;
+      const t = e.target as Node | null;
+      if (t && !frame.contains(t)) frame.dataset.active = 'false';
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && frame.dataset.active === 'true') frame.dataset.active = 'false';
+    });
+  });
+</script>

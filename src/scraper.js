@@ -157,6 +157,88 @@ async function api(page, restBase, endpoint, opts = {}) {
   }, { url: restBase + endpoint, opts });
 }
 
+// Wie lange auf das Erscheinen des SSO-Buttons gepollt wird (SPA rendert ihn
+// erst ~1.5s nach domcontentloaded — live verifiziert 2026-06-18). Wird in
+// trySilentReSSO zusätzlich durch timeoutMs gekappt.
+const SSO_BUTTON_SETTLE_MS = 4000;
+
+// Findet den "WISS Office 365"-SSO-Button über mehrere Selektor-Strategien.
+// Gibt den ersten Treffer-Locator zurück (oder null). Pure (kein Logging),
+// damit sowohl der Volllogin als auch der stille Re-SSO ihn nutzen können.
+async function findSsoButton(page) {
+  const strategies = [
+    () => page.getByRole('link',   { name: /Office\s*365/i }),
+    () => page.getByRole('button', { name: /Office\s*365/i }),
+    () => page.getByText('WISS Office 365', { exact: false }),
+    () => page.locator('a, button, input[type="submit"], input[type="button"]').filter({ hasText: /Office\s*365/i }),
+    () => page.locator('input[value*="Office" i]'),
+    () => page.locator('a[href*="saml" i], a[href*="oauth" i], a[href*="sso" i], a[href*="azure" i]').first()
+  ];
+  for (const make of strategies) {
+    const loc = make().first();
+    const n = await loc.count().catch(() => 0);
+    if (n > 0) return loc;
+  }
+  return null;
+}
+
+// Kapselt die /username-Prüfung (DRY: genutzt von Stufe 1, dem stillen Re-SSO
+// und der Schluss-Verifikation). apiFn ist injizierbar (Default: das echte
+// api()), damit der Branch ohne echten Browser testbar ist.
+async function isLoggedIn(page, restBase, apiFn = api) {
+  const chk = await apiFn(page, restBase, '/username');
+  const ok = !!(chk && chk.ok && !String(chk.text || '').includes('anonymous'));
+  const username = ok ? ((chk.json && chk.json.username) || '(user)') : null;
+  return { ok, username };
+}
+
+// Versucht den stillen Re-SSO im bereits geseedeten Context (MS-Cookie noch
+// gültig). Klickt den SSO-Button und entscheidet per Race: eingeloggt vs.
+// Email-Feld sichtbar (= Passwort nötig). timeoutMs kappt den Versuch hart,
+// damit ein Fehlschlag nicht seine Wartezeit oben auf den Volllogin draufpackt.
+// findSsoButton/apiFn injizierbar für Tests (Branch-Logik ohne echten Browser).
+async function trySilentReSSO(page, restBase, opts, onLog, apiFn = api) {
+  const { baseUrl, timeoutMs = 8000, findSsoButton: findFn = findSsoButton } = opts;
+  const emailSel = 'input[type="email"]:visible, input[name="loginfmt"]:visible';
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  try {
+    await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: timeoutMs }).catch(() => {});
+    // evtl. schon still eingeloggt nach Navigation (MS-Cookie reicht ohne Klick)?
+    if ((await isLoggedIn(page, restBase, apiFn)).ok) return true;
+
+    // Settle-Retry: der SSO-Button rendert erst ~1.5s nach domcontentloaded
+    // (Tocco-SPA). Live-verifiziert 2026-06-18: einmalige Suche direkt nach goto
+    // liefert null → unnötiger Volllogin. Daher bis SSO_BUTTON_SETTLE_MS
+    // (gekappt durch timeoutMs) aktiv auf den Button pollen.
+    let btn = await findFn(page);
+    const settleDeadline = Date.now() + Math.min(timeoutMs, SSO_BUTTON_SETTLE_MS);
+    while (!btn && Date.now() < settleDeadline) {
+      await sleep(300);
+      btn = await findFn(page);
+    }
+    if (!btn) return false; // kein Button → kann nichts Stilles tun
+
+    onLog('🔁 Stiller Re-SSO: SSO-Button klicken (MS-Session evtl. noch gültig)...', 'info');
+    await btn.click({ timeout: timeoutMs }).catch(() => {});
+
+    // Race: eingeloggt (poll /username) vs. Email-Feld sichtbar (= Passwort nötig).
+    const deadline = Date.now() + timeoutMs;
+    const emailAppeared = page.waitForSelector(emailSel, { state: 'visible', timeout: timeoutMs })
+      .then(() => 'email').catch(() => null);
+    const becameLoggedIn = (async () => {
+      while (Date.now() < deadline) {
+        if ((await isLoggedIn(page, restBase, apiFn)).ok) return 'in';
+        await sleep(400);
+      }
+      return null;
+    })();
+    const winner = await Promise.race([emailAppeared, becameLoggedIn]);
+    return winner === 'in';
+  } catch (_) {
+    return false;
+  }
+}
+
 async function ensureLoggedIn(config, onLog, onPhase, onBrowser) {
   const { msEmail, msPassword, baseUrl, headless, slowMo, storageFile, cwd, storageCrypto } = config;
   const restBase = baseUrl + '/nice2';
@@ -181,13 +263,35 @@ async function ensureLoggedIn(config, onLog, onPhase, onBrowser) {
       const pg = await ctx.newPage();
       await pg.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
       await pg.waitForTimeout(1500);
-      const chk = await api(pg, restBase, '/username');
-      if (chk.ok && !chk.text.includes('anonymous')) {
-        const u = (chk.json && chk.json.username) || '(user)';
-        onLog('✅ Session gültig, eingeloggt als ' + u, 'info');
+      const { ok, username } = await isLoggedIn(pg, restBase);
+      if (ok) {
+        onLog('✅ Session gültig, eingeloggt als ' + (username || '(user)'), 'info');
         return { browser, context: ctx, page: pg };
       }
-      onLog('⏰ Gecachte Session ungültig → neuer Login', 'info');
+      // Stufe 2: Tocco-Session tot, aber der persistente MS-Cookie lebt evtl.
+      // noch (~89 Tage) → stiller Re-SSO im SELBEN geseedeten Context, bevor wir
+      // ihn wegwerfen. Spart den vollen E-Mail/Passwort-Login (15-20s → ~3-5s).
+      onLog('⏰ Gecachte Tocco-Session abgelaufen → versuche stillen Re-SSO', 'info');
+      if (typeof onPhase === 'function') onPhase('login');
+      const silent = await trySilentReSSO(pg, restBase, { baseUrl }, onLog);
+      if (silent) {
+        const { username } = await isLoggedIn(pg, restBase);
+        onLog('✅ Stiller Re-SSO erfolgreich, eingeloggt als ' + (username || '(user)'), 'info');
+        // Frischen State (neuer nice_auth) speichern → nächster Lauf trifft Stufe 1.
+        try {
+          const stateObj = await ctx.storageState();
+          const payload = serializeStorageState(stateObj, storageCrypto);
+          const storageTmp = storageFile + '.tmp';
+          fs.writeFileSync(storageTmp, payload, { encoding: 'utf8', mode: 0o600 });
+          try { fs.chmodSync(storageTmp, 0o600); } catch (_) { /* Windows */ }
+          fs.renameSync(storageTmp, storageFile);
+          onLog('💾 Browser-State aktualisiert (Re-SSO)', 'info');
+        } catch (e) {
+          onLog('⚠️  State-Speichern nach Re-SSO fehlgeschlagen: ' + redact((e && e.message) || ''), 'warn');
+        }
+        return { browser, context: ctx, page: pg };
+      }
+      onLog('↩️  Stiller Re-SSO fehlgeschlagen → voller Login', 'info');
       await pg.close().catch(() => {});
       await ctx.close().catch(() => {});
     }
@@ -217,25 +321,11 @@ async function ensureLoggedIn(config, onLog, onPhase, onBrowser) {
 
     let loginPage = page;
     if (!alreadyAtMS) {
-      // Suche den "WISS Office 365" Button — mehrere Strategien
+      // Suche den "WISS Office 365" Button (Strategien jetzt in findSsoButton).
       onLog('🔍 Suche SSO-Button...', 'info');
-      const strategies = [
-        () => page.getByRole('link',   { name: /Office\s*365/i }),
-        () => page.getByRole('button', { name: /Office\s*365/i }),
-        () => page.getByText('WISS Office 365', { exact: false }),
-        () => page.locator('a, button, input[type="submit"], input[type="button"]').filter({ hasText: /Office\s*365/i }),
-        () => page.locator('input[value*="Office" i]'),
-        () => page.locator('a[href*="saml" i], a[href*="oauth" i], a[href*="sso" i], a[href*="azure" i]').first()
-      ];
-      let clickTarget = null;
-      for (let i = 0; i < strategies.length; i++) {
-        const loc = strategies[i]().first();
-        const n = await loc.count().catch(() => 0);
-        if (n > 0) {
-          clickTarget = loc;
-          onLog('   Strategie ' + (i+1) + ' hat Button gefunden (' + n + ' Match' + (n>1?'es':'') + ')', 'info');
-          break;
-        }
+      const clickTarget = await findSsoButton(page);
+      if (clickTarget) {
+        onLog('   SSO-Button gefunden', 'info');
       }
 
       if (!clickTarget) {
@@ -1772,5 +1862,7 @@ module.exports = {
   safeEvaluate,
   createDetailPagePool,
   serializeStorageState,
-  readStorageState
+  readStorageState,
+  // Login-Kaskaden-Helper, ohne Browser testbar (apiFn/findSsoButton injizierbar).
+  __test: { isLoggedIn, trySilentReSSO, findSsoButton }
 };

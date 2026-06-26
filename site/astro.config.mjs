@@ -1,10 +1,16 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
+import rehypeBaseLinks from './rehype-base-links.mjs';
+
+const base = '/wissen';
 
 export default defineConfig({
   site: 'https://jokeriscrazy.github.io',
-  base: '/wissen',
+  base,
+  markdown: {
+    rehypePlugins: [[rehypeBaseLinks, { base }]],
+  },
   integrations: [
     starlight({
       title: 'WISSen',
@@ -73,7 +79,11 @@ export default defineConfig({
             // Anchor-link statt Slug — Starlight's Slug-Resolver kann auf
             // Windows fehlschlagen wenn der Link kein eigener Doc-Slug ist.
             // /#demo scrollt in-place auf der Landing zur Live-Demo-Section.
-            { label: 'Live Demo', link: '/#demo' },
+            { label: 'Live Demo (Handy)', link: '/#demo' },
+            // Desktop-Dashboard-Demo: eigenständige Vollbild-SPA (statisch
+            // gebaut + Mock-API). Liegt ausserhalb von Astros Routing unter
+            // {base}/desktop-demo/ → attrs.target öffnet sie in neuem Tab.
+            { label: 'Desktop-Demo', link: '/desktop-demo/', attrs: { target: '_blank' } },
             { label: 'Übersicht', link: '/start/uebersicht/' },
             { label: 'Quick Start (Docker)', link: '/start/quick-start/' },
             { label: 'Lokale Installation', link: '/start/installation/' },
@@ -91,6 +101,12 @@ export default defineConfig({
           items: [
             { label: 'Environment-Variablen', link: '/konfiguration/env-variablen/' },
             { label: 'Sicherheit', link: '/konfiguration/sicherheit/' },
+          ],
+        },
+        {
+          label: 'Betrieb',
+          items: [
+            { label: 'Ins Internet freigeben', link: '/betrieb/internet-freigeben/' },
           ],
         },
         {

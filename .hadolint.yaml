@@ -1,0 +1,17 @@
+# Hadolint-Konfiguration für das WISSen-Dockerfile.
+#
+# Zwei Regeln werden BEWUSST projektweit ignoriert. Inline-`# hadolint ignore=`-
+# Kommentare im Dockerfile griffen dafür nicht zuverlässig (das DL3008-Ignore
+# stand durch die mehrzeiligen Begründungs-Kommentare nicht DIREKT über dem
+# `RUN`; das DL3002-Ignore hing an gar keiner `USER`-Instruktion) — daher hier
+# zentral. Die ausführlichen Begründungen stehen weiterhin im Dockerfile.
+ignored:
+  # DL3002 "Last USER should not be root" — intendiert: Der Container startet als
+  # root, damit der entrypoint PUID/PGID anwenden + das Volume chownen kann;
+  # danach Privilege-Drop auf den unprivilegierten `app`-User via gosu.
+  - DL3002
+  # DL3008 "Pin versions in apt-get install" — bewusst NICHT gepinnt: Ubuntu
+  # rotiert exakte Versionen in den Security-Pockets aus, ein Pin bricht den
+  # Build nach dem nächsten Security-Refresh. APT_REFRESH-Cache-Bust + npm-Pin
+  # decken die Supply-Chain-Seite ab.
+  - DL3008

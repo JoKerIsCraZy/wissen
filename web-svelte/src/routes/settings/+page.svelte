@@ -1101,6 +1101,26 @@
     margin-inline: calc(50% - 50vw + var(--rail-w) / 2);
     padding: 14px calc(50vw - 50% - var(--rail-w) / 2);
   }
+  /* Sticky-Footer buendig an den Scroll-Boden. Die Layout-Shell (.main__inner)
+     gibt normalen Seiten unten Luft (padding-bottom 60px / 24px mobil). Mit
+     Save-Bar muss das weg, sonst loest sich der sticky Bar genau um diesen
+     Betrag ZU FRUEH vom Viewport-Boden und es bleibt ein dunkler Spalt darunter
+     (und der letzte Abschnitt wirkt "hinter" dem Bar verdeckt). :has() begrenzt
+     die Regel auf diese Route (auf anderen Seiten existiert keine .save-bar im
+     DOM -> kein Match), daher ist die globale Deklaration unbedenklich und
+     breakpoint-unabhaengig. */
+  :global(.main__inner:has(.save-bar)) {
+    padding-bottom: 0;
+  }
+  /* Scrollbar auf der Settings-Seite ausblenden — Scroll bleibt per Wheel/Touch/
+     Tastatur. Nebeneffekt: ohne Scrollbar-Gutter wird die Full-Bleed-Math der
+     Save-Bar exakt (kein Rand-Sliver). :has() begrenzt es auf diese Route. */
+  :global(.main:has(.save-bar)) {
+    scrollbar-width: none;            /* Firefox */
+  }
+  :global(.main:has(.save-bar)::-webkit-scrollbar) {
+    display: none;                    /* WebKit / Blink */
+  }
   .save-bar__hint { margin-right: auto; font-size: 12px; color: var(--text-dim); letter-spacing: 0.04em; }
   .btn-save {
     background: var(--accent); color: var(--accent-ink); border: none;

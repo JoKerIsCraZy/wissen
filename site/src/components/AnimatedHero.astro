@@ -59,7 +59,7 @@ const version = resolveVersion();
     </h1>
 
     <p class="tm-hero__tagline">
-      Inoffizieller Scraper für das WISS Tocco-Schulportal — Noten, Stundenplan,
+      Inoffizielles Daily-Driver-Toolkit für das WISS Tocco-Schulportal — Noten, Stundenplan,
       installierbare PWA, Telegram-Bot und Push-Benachrichtigungen aus einem Guss.
       Self-hosted in einem Docker-Container.
     </p>
@@ -76,7 +76,15 @@ const version = resolveVersion();
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <polygon points="6 4 20 12 6 20 6 4"/>
         </svg>
-        Live Demo
+        Live Demo (Handy)
+      </a>
+      <a href={`${base}/desktop-demo/`} class="tm-btn tm-btn--ghost tm-btn--desktop" target="_blank" rel="noopener">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="2" y="3" width="20" height="14" rx="2"/>
+          <line x1="8" y1="21" x2="16" y2="21"/>
+          <line x1="12" y1="17" x2="12" y2="21"/>
+        </svg>
+        Desktop-Demo
       </a>
       <a href={`${base}/start/uebersicht/`} class="tm-btn tm-btn--ghost">Was kann es?</a>
       <a href="https://github.com/JoKerIsCraZy/wissen" class="tm-btn tm-btn--quiet" target="_blank" rel="noopener">
@@ -356,6 +364,29 @@ const version = resolveVersion();
   :root[data-theme='light'] .tm-btn--demo:hover {
     background: color-mix(in oklab, var(--tm-violet-500) 15%, white);
     color: var(--tm-violet-900);
+  }
+
+  /* "Desktop-Demo"-Variante: Sky-Akzent (passend zur Cyan-Orb im Hero-BG)
+   * — visuell abgegrenzt vom violetten Handy-Demo-Button, aber gleich
+   * subtil, damit beide den Primary-CTA nicht konkurrenzieren. */
+  .tm-btn--desktop {
+    border-color: color-mix(in oklab, #38bdf8 32%, transparent);
+    background: color-mix(in oklab, #38bdf8 10%, transparent);
+    color: #7dd3fc;
+  }
+  .tm-btn--desktop:hover {
+    background: color-mix(in oklab, #38bdf8 18%, transparent);
+    border-color: color-mix(in oklab, #38bdf8 52%, transparent);
+    color: var(--sl-color-white);
+  }
+  :root[data-theme='light'] .tm-btn--desktop {
+    color: #0369a1;
+    background: color-mix(in oklab, #38bdf8 12%, white);
+    border-color: color-mix(in oklab, #38bdf8 35%, transparent);
+  }
+  :root[data-theme='light'] .tm-btn--desktop:hover {
+    background: color-mix(in oklab, #38bdf8 18%, white);
+    color: #075985;
   }
 
   .tm-btn--quiet {
