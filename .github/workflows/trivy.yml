@@ -43,7 +43,7 @@ jobs:
         with:
           # version pinned (vs. implicit latest) — zizmor unpinned-tools.
           # Bump in lockstep with the action SHA above when Dependabot opens a PR.
-          version: v0.71.1
+          version: v0.72.0
           scan-type: 'config'
           scan-ref: '.'
           format: 'sarif'
@@ -92,7 +92,7 @@ jobs:
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           # version pinned (vs. implicit latest) — zizmor unpinned-tools.
-          version: v0.71.1
+          version: v0.72.0
           image-ref: 'wissen:trivy'
           format: 'sarif'
           output: 'trivy-image.sarif'
