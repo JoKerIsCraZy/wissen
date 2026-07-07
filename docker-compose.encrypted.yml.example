@@ -1,0 +1,58 @@
+# =============================================================
+# WISSen — At-Rest-Verschlüsselung des data/-Volumes (Beispiel)
+# =============================================================
+#
+# WARUM: wissen.db (SQLite) liegt im KLARTEXT auf der Platte — Noten,
+# Dozentennamen, Stundenplan und Anwesenheit. Die App verschlüsselt nur
+# die Secrets in settings.json und die Login-Session in storage.json
+# (AES-256-GCM, Master-Key via MASTER_KEY / MASTER_KEY_FILE off-volume,
+# siehe .env.example). Die DB-Datei selbst kann node:sqlite NICHT
+# verschlüsseln.
+#
+# LÖSUNG: Das data/-Verzeichnis auf einem VERSCHLÜSSELTEN Host-Pfad ablegen.
+# Docker verschlüsselt Volumes nicht selbst — die Verschlüsselung passiert
+# eine Ebene tiefer, im Host-Dateisystem. Zwei erprobte Wege (Setup unten).
+#
+# Kopiere diese Datei nach `docker-compose.encrypted.yml`, passe den
+# Host-Pfad an und starte mit:
+#   docker compose -f docker-compose.yml -f docker-compose.encrypted.yml up -d
+#
+# ============================ Host-Setup =====================
+#
+# Variante A — gocryptfs (FUSE-Overlay, kein root für den Mount nötig):
+#   sudo apt install gocryptfs
+#   mkdir -p /srv/wissen/cipher /srv/wissen/plain
+#   gocryptfs -init /srv/wissen/cipher            # Passwort setzen
+#   gocryptfs /srv/wissen/cipher /srv/wissen/plain  # entsperren → /plain nutzen
+#   # → HOST_DATA_DIR=/srv/wissen/plain
+#   # Zum Sperren:  fusermount -u /srv/wissen/plain
+#
+# Variante B — LUKS (blockbasiert, ganze Partition/Loopback):
+#   fallocate -l 2G /srv/wissen.img
+#   sudo cryptsetup luksFormat /srv/wissen.img
+#   sudo cryptsetup luksOpen /srv/wissen.img wissen_crypt
+#   sudo mkfs.ext4 /dev/mapper/wissen_crypt
+#   sudo mkdir -p /srv/wissen/plain
+#   sudo mount /dev/mapper/wissen_crypt /srv/wissen/plain
+#   # → HOST_DATA_DIR=/srv/wissen/plain
+#
+# WICHTIG: Nach einem Reboot ist der verschlüsselte Store GESPERRT. Der
+# Container muss NACH dem Entsperren des Host-Pfads starten (sonst schreibt
+# er in ein leeres/unverschlüsseltes Verzeichnis). restart: unless-stopped +
+# manuelles Entsperren, oder ein systemd-Unit mit Abhängigkeit auf den Mount.
+#
+# =============================================================
+
+services:
+  wissen:
+    volumes:
+      # Ersetzt den Default-Mount (./data) aus docker-compose.yml durch den
+      # entsperrten, verschlüsselten Host-Pfad. HOST_DATA_DIR in .env setzen
+      # oder hier direkt eintragen.
+      - ${HOST_DATA_DIR:-/srv/wissen/plain}:/app/data
+
+    environment:
+      # Empfohlen: Master-Key NICHT im verschlüsselten Volume ablegen, sondern
+      # off-volume — sonst hängt bei einem Klartext-Kopierfehler des Plain-
+      # Mounts auch der Key mit drin. Als Docker-Secret oder .env-Wert.
+      - MASTER_KEY=${MASTER_KEY:?MASTER_KEY muss gesetzt sein (siehe .env.example)}

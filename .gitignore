@@ -107,7 +107,9 @@ coverage/
 
 # Local docker-compose overrides — kept out of the repo so each operator
 # can pin volumes / ports / env without conflicting with shared defaults.
+# (Die *.example-Vorlagen bleiben getrackt, die ausgefüllten Kopien nicht.)
 docker-compose.override.yml
+docker-compose.encrypted.yml
 
 # OS / tooling crud
 .npm/

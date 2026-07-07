@@ -61,6 +61,13 @@ volumes:
 
 Data persists across container restarts. Backup `data/` for disaster recovery.
 
+> **Encryption at rest:** `wissen.db` is stored **in plaintext** (grades, teacher
+> names, schedule, attendance) — `node:sqlite` cannot encrypt the DB file. For
+> at-rest protection, put `data/` on an **encrypted volume** (LUKS / gocryptfs /
+> NAS encrypted folder / BitLocker). See `docker-compose.encrypted.yml.example`
+> for a ready-made gocryptfs/LUKS setup, and keep the AES master key off-volume
+> via `MASTER_KEY` / `MASTER_KEY_FILE` (see `.env.example`).
+
 ## Environment Variables
 
 Load from `.env` file via `env_file: .env` in compose.

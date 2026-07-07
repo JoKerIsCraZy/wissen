@@ -13,10 +13,22 @@
  *   ❌ Memory-Dump
  *   ❌ Container-Escape
  *
- * Master-Key:
- *   - 32 Bytes (256 bit), random generiert beim ersten Start
- *   - Persistiert in data/.master-key (mode 0600, atomic write via rename)
- *   - Idempotent: existierender Key wird wiederverwendet
+ * Master-Key (Ladereihenfolge, erste vorhandene Quelle gewinnt):
+ *   1. process.env.MASTER_KEY       — 32 Bytes als 64 Hex-Chars ODER base64.
+ *                                     Bevorzugt: der Key liegt dann NICHT im
+ *                                     data/-Volume, ein Backup/Snapshot von
+ *                                     data/ leakt ihn nicht mehr mit.
+ *   2. process.env.MASTER_KEY_FILE  — Pfad zu einer Key-Datei (z.B. Docker-
+ *                                     Secret /run/secrets/master_key). Inhalt:
+ *                                     rohe 32 Byte ODER hex/base64-Text.
+ *   3. data/.master-key             — Legacy-Fallback. 32 Bytes random, beim
+ *                                     ersten Start generiert (mode 0600, atomic
+ *                                     write via rename), danach wiederverwendet.
+ *
+ *   Ist Quelle 1 oder 2 GESETZT aber ungültig/unlesbar, bricht der Load LAUT ab
+ *   — es wird NICHT still ein neuer Key generiert (das würde bestehende
+ *   Ciphertexte unlesbar machen und die Fehlkonfiguration verschleiern). Nur
+ *   wenn KEINE env-Quelle gesetzt ist, greift der Legacy-Generate-Pfad.
  *
  * Format auf Disk:
  *   "enc:v1:<iv-b64>:<ciphertext-b64>:<authtag-b64>"
@@ -39,6 +51,11 @@ const KEY_LENGTH = 32;     // 256-bit AES-Key
 const IV_LENGTH = 12;      // GCM-Standard
 const TAG_LENGTH = 16;     // GCM Auth-Tag
 
+// Env-Quellen für den Master-Key (siehe Ladereihenfolge im Datei-Docstring).
+// Namen als Konstanten, damit Fehler-Messages und Doku konsistent bleiben.
+const ENV_KEY = 'MASTER_KEY';
+const ENV_KEY_FILE = 'MASTER_KEY_FILE';
+
 const PREFIX = 'enc:v1:';
 
 // Welche Felder im Settings-Objekt verschlüsselt werden. Single source of truth.
@@ -50,9 +67,68 @@ const SECRET_FIELDS = Object.freeze(['msPassword', 'telegramToken']);
 // Reihenfolge (chdir → require) kontrollieren können.
 let _key = null;
 
+// Öffentlicher Einstieg: liefert den Master-Key nach der Ladereihenfolge
+// (siehe Datei-Docstring). Env-Quellen werden bei jedem Erst-Load frisch
+// gelesen; danach ist der Key modulweit gecached (_key). Die env-Pfade
+// werfen LAUT bei Fehlkonfiguration — nur ein komplett ungesetztes
+// MASTER_KEY / MASTER_KEY_FILE führt zum Legacy-Generate-Pfad.
 function loadOrGenerateKey() {
   if (_key) return _key;
 
+  const envKey = process.env[ENV_KEY];
+  if (typeof envKey === 'string' && envKey.trim() !== '') {
+    _key = parseKeyMaterial(envKey, `${ENV_KEY} env`);
+    return _key;
+  }
+
+  const envFile = process.env[ENV_KEY_FILE];
+  if (typeof envFile === 'string' && envFile.trim() !== '') {
+    _key = loadKeyFromFile(envFile.trim());
+    return _key;
+  }
+
+  _key = loadOrGenerateLegacyKey();
+  return _key;
+}
+
+// Parst Key-Material aus einem String: 64 Hex-Chars ODER base64, muss zu
+// exakt KEY_LENGTH (32) Bytes dekodieren. Wirft mit Quellen-Kontext, wenn
+// die Länge nicht stimmt. `source` fließt in die Fehler-Message (z.B.
+// "MASTER_KEY env" / "MASTER_KEY_FILE (/run/secrets/...)").
+function parseKeyMaterial(raw, source) {
+  const s = String(raw).trim();
+  // Hex hat Vorrang: 64 Hex-Chars sind unmissverständlich als Hex gemeint.
+  if (/^[0-9a-fA-F]{64}$/.test(s)) {
+    return Buffer.from(s, 'hex');
+  }
+  // Sonst base64 / base64url (Buffer.from dekodiert lenient, wirft nie).
+  const buf = Buffer.from(s, 'base64');
+  if (buf.length === KEY_LENGTH) return buf;
+  throw new Error(
+    `${source}: ungültiges Key-Material — erwartet 32 Bytes als 64 Hex-Chars `
+    + `oder base64, dekodiert wurden ${buf.length} Bytes`
+  );
+}
+
+// Lädt den Key aus einer Datei (MASTER_KEY_FILE). Rohe 32-Byte-Binärdatei
+// (z.B. eine kopierte data/.master-key) wird direkt genutzt; andernfalls wird
+// der Datei-Inhalt als hex/base64-Text interpretiert. Fehlt die Datei oder ist
+// sie unlesbar, wirft die Funktion LAUT — ein explizit gesetzter Pfad darf
+// nicht still in den Generate-Pfad durchfallen.
+function loadKeyFromFile(file) {
+  let raw;
+  try {
+    raw = fs.readFileSync(file);
+  } catch (err) {
+    throw new Error(`${ENV_KEY_FILE} (${file}): Key-Datei nicht lesbar — ${err.message}`, { cause: err });
+  }
+  if (raw.length === KEY_LENGTH) return raw;
+  return parseKeyMaterial(raw.toString('utf8'), `${ENV_KEY_FILE} (${file})`);
+}
+
+// Legacy-Pfad: data/.master-key lesen oder (race-safe) neu generieren.
+// Wird NUR aufgerufen, wenn keine env-Quelle gesetzt ist.
+function loadOrGenerateLegacyKey() {
   // Versuch 1: existierenden Key lesen
   try {
     const raw = fs.readFileSync(KEY_FILE);

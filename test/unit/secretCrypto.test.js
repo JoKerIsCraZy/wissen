@@ -124,3 +124,115 @@ test('subsequent calls reuse the same master key', () => {
   assert.strictEqual(c2.decrypt(ct), 'persist-test',
     'reload must read the existing master-key, not regenerate');
 });
+
+// =============================================================
+// Master-Key aus env-Quellen (MASTER_KEY / MASTER_KEY_FILE)
+// =============================================================
+
+// Setzt env-Vars, führt fn aus und räumt IMMER auf (auch bei Throw), damit
+// kein Leak in nachfolgende Tests passiert.
+function withEnv(vars, fn) {
+  const saved = {};
+  for (const k of Object.keys(vars)) {
+    saved[k] = process.env[k];
+    if (vars[k] === undefined) delete process.env[k];
+    else process.env[k] = vars[k];
+  }
+  try {
+    return fn();
+  } finally {
+    for (const k of Object.keys(vars)) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  }
+}
+
+test('MASTER_KEY env (hex) is used and no data/.master-key is written', () => {
+  const keyHex = 'a'.repeat(64); // 32 bytes as 64 hex chars
+  withEnv({ MASTER_KEY: keyHex, MASTER_KEY_FILE: undefined }, () => {
+    const c = setupTmp();
+    const ct = c.encrypt('via-env');
+    assert.strictEqual(c.decrypt(ct), 'via-env');
+    assert.strictEqual(fs.existsSync(c.KEY_FILE), false,
+      'env key must NOT trigger the legacy data/.master-key generate path');
+  });
+});
+
+test('MASTER_KEY env (base64) round-trips', () => {
+  const keyB64 = Buffer.alloc(32, 7).toString('base64');
+  withEnv({ MASTER_KEY: keyB64, MASTER_KEY_FILE: undefined }, () => {
+    const c = setupTmp();
+    const ct = c.encrypt('b64-key');
+    assert.strictEqual(c.decrypt(ct), 'b64-key');
+  });
+});
+
+test('MASTER_KEY env with wrong length throws loudly (no silent regen)', () => {
+  withEnv({ MASTER_KEY: 'deadbeef', MASTER_KEY_FILE: undefined }, () => {
+    const c = setupTmp();
+    assert.throws(() => c.encrypt('x'), /MASTER_KEY.*Key-Material|32 Bytes/i);
+    assert.strictEqual(fs.existsSync(c.KEY_FILE), false,
+      'invalid env key must not fall through to generating a fresh legacy key');
+  });
+});
+
+test('MASTER_KEY_FILE (hex text file) is used', () => {
+  const c0 = setupTmp(); // establishes a tmp cwd
+  const keyPath = path.join(process.cwd(), 'ext-key.hex');
+  fs.writeFileSync(keyPath, 'b'.repeat(64));
+  withEnv({ MASTER_KEY: undefined, MASTER_KEY_FILE: keyPath }, () => {
+    delete require.cache[require.resolve('../../src/secretCrypto')];
+    const c = require('../../src/secretCrypto');
+    const ct = c.encrypt('via-file');
+    assert.strictEqual(c.decrypt(ct), 'via-file');
+    assert.strictEqual(fs.existsSync(c.KEY_FILE), false);
+  });
+  void c0;
+});
+
+test('MASTER_KEY_FILE (raw 32-byte binary) is used directly', () => {
+  const c0 = setupTmp();
+  const keyPath = path.join(process.cwd(), 'ext-key.bin');
+  fs.writeFileSync(keyPath, Buffer.alloc(32, 0x11));
+  withEnv({ MASTER_KEY: undefined, MASTER_KEY_FILE: keyPath }, () => {
+    delete require.cache[require.resolve('../../src/secretCrypto')];
+    const c = require('../../src/secretCrypto');
+    const ct = c.encrypt('raw-bin');
+    assert.strictEqual(c.decrypt(ct), 'raw-bin');
+  });
+  void c0;
+});
+
+test('MASTER_KEY_FILE pointing at a missing file throws loudly', () => {
+  const c0 = setupTmp();
+  const missing = path.join(process.cwd(), 'does-not-exist.key');
+  withEnv({ MASTER_KEY: undefined, MASTER_KEY_FILE: missing }, () => {
+    delete require.cache[require.resolve('../../src/secretCrypto')];
+    const c = require('../../src/secretCrypto');
+    assert.throws(() => c.encrypt('x'), /MASTER_KEY_FILE.*nicht lesbar/i);
+  });
+  void c0;
+});
+
+test('MASTER_KEY takes precedence over MASTER_KEY_FILE', () => {
+  const c0 = setupTmp();
+  const keyPath = path.join(process.cwd(), 'ignored-key.hex');
+  fs.writeFileSync(keyPath, 'c'.repeat(64));
+  const envKeyHex = 'd'.repeat(64);
+  // Encrypt with the env key active.
+  let ct;
+  withEnv({ MASTER_KEY: envKeyHex, MASTER_KEY_FILE: keyPath }, () => {
+    delete require.cache[require.resolve('../../src/secretCrypto')];
+    const c = require('../../src/secretCrypto');
+    ct = c.encrypt('precedence');
+  });
+  // The FILE key alone must NOT be able to decrypt it (env key won, keys differ).
+  withEnv({ MASTER_KEY: undefined, MASTER_KEY_FILE: keyPath }, () => {
+    delete require.cache[require.resolve('../../src/secretCrypto')];
+    const c = require('../../src/secretCrypto');
+    assert.throws(() => c.decrypt(ct), /unable|auth/i,
+      'file key must not decrypt what the env key encrypted');
+  });
+  void c0;
+});

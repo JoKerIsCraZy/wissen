@@ -286,9 +286,10 @@ curl -H "Authorization: Bearer $API_TOKEN" http://localhost:3000/api/noten
   - 50 Fehlversuche / 6 h → 6 h Lockout
   - 60 Fehlversuche / 15 min → SSE-spezifisch (toleriert EventSource-Reconnect-Storms, fängt Token-Enumeration)
 - 🚫 **SSRF-Schutz:** Tocco-URLs env-only, Push-Endpoints auf Whitelist (FCM / Mozilla / Apple / Windows)
-- 🔐 **Settings-Encryption at rest:** `data/settings.json`-Secrets (`msPassword`, `telegramToken`) via **AES-256-GCM**. Master-Key auto-generiert beim ersten Start (`data/.master-key`, Mode 0600), Plaintext-Bestände lazy migriert. Format `enc:v1:<iv>:<ct>:<tag>` für künftige Algo-Wechsel.
-  - **Geschützt:** Backup-Leaks, Volume-Snapshots, casual File-Sharing
-  - **NICHT geschützt:** Shell-Access auf den laufenden Host (Master-Key liegt daneben), Memory-Dumps, Container-Escape
+- 🔐 **Secrets-Encryption at rest:** `data/settings.json`-Secrets (`msPassword`, `telegramToken`) **und** die Login-Session `data/storage.json` via **AES-256-GCM**. Format `enc:v1:<iv>:<ct>:<tag>` für künftige Algo-Wechsel, Plaintext-Bestände lazy migriert. Master-Key-Ladereihenfolge: `MASTER_KEY` (env) → `MASTER_KEY_FILE` (Pfad/Docker-Secret) → `data/.master-key` (Legacy-Fallback, auto-generiert, Mode 0600).
+  - **Geschützt:** Backup-Leaks, Volume-Snapshots, casual File-Sharing — **vorausgesetzt der Key liegt off-volume** (`MASTER_KEY`/`MASTER_KEY_FILE`). Liegt er nur im Legacy-`data/.master-key`, reist er im `data/`-Backup mit und der Schutz entfällt.
+  - **NICHT geschützt:** Shell-Access auf den laufenden Host, Memory-Dumps, Container-Escape
+- 🗄 **`data/wissen.db` liegt im Klartext** (Noten, Dozentennamen, Stundenplan, Anwesenheit) — `node:sqlite` kann die DB-Datei nicht verschlüsseln. At-Rest-Schutz dafür über **Volume-/Disk-Encryption** (siehe unten), nicht über die App.
 - 🌐 **Netzwerk:** für öffentliche Exposition **immer** Reverse-Proxy mit TLS (Caddy / Traefik / nginx). `TRUST_PROXY` korrekt setzen.
 - 📁 **`data/`** enthält Sessions, Tokens, Master-Key, optional Credentials, VAPID-Keys — **niemals public**.
 
@@ -311,7 +312,57 @@ borg create /backups/wissen::$(date +%Y%m%d) ./data --exclude '*/.master-key'
 tar czf - data | gpg --symmetric --cipher-algo AES256 -o wissen-backup-$(date +%Y%m%d).tar.gz.gpg
 ```
 
-> Die SQLite-DB (`data/wissen.db`) enthält **keine** Secrets (Passwörter / Tokens liegen alle in der verschlüsselten `settings.json`) — nur deine eigenen Noten und Termine.
+> Die SQLite-DB (`data/wissen.db`) enthält **keine** Secrets (Passwörter / Tokens liegen alle in der verschlüsselten `settings.json`) — aber sehr wohl **personenbezogene Daten**: deine Noten, Dozentennamen, Stundenplan und Anwesenheit. Sie liegt im Klartext auf der Platte.
+
+### Verschlüsselung at rest (Volume / Disk)
+
+`node:sqlite` kann die DB-Datei nicht selbst verschlüsseln. Für echten
+At-Rest-Schutz von `wissen.db` (und dem ganzen `data/`-Verzeichnis inkl.
+WAL-Sidecars) das **Volume verschlüsseln** — eine Ebene unter der App:
+
+```bash
+# gocryptfs — FUSE-Overlay, kein root für den Mount, pro-Datei-Verschlüsselung
+gocryptfs -init /srv/wissen/cipher
+gocryptfs /srv/wissen/cipher /srv/wissen/plain   # data/ hierhin legen
+
+# LUKS — blockbasiert, ganze Partition/Loopback
+cryptsetup luksFormat /srv/wissen.img
+cryptsetup luksOpen  /srv/wissen.img wissen_crypt   # → mkfs + mount → data/
+```
+
+- **Docker:** Bind-Mount auf den entsperrten Pfad statt `./data`. Fertiges
+  Beispiel in [`docker-compose.encrypted.yml.example`](docker-compose.encrypted.yml.example)
+  (gocryptfs- und LUKS-Setup dokumentiert).
+- **NAS:** Synology/QNAP „Encrypted Shared Folder" nutzen und `data/` dorthin
+  legen. Unraid: verschlüsselten Pool/Share.
+- **Desktop:** BitLocker (Windows), FileVault (macOS) oder LUKS (Linux) auf der
+  Partition, die `data/` enthält.
+- Deckt das **komplette** `data/` ab: DB, WAL/SHM, `storage.json`, Tokens,
+  Master-Key. Schützt gegen Platten-Diebstahl, Backup-/Snapshot-Leak und
+  entwendete Datenträger — **nicht** gegen Zugriff auf den laufenden,
+  entsperrten Host.
+
+### Upgrade von einer älteren Version
+
+Der Wechsel auf eine Version mit `MASTER_KEY`-Support ist **rückwärtskompatibel** —
+wenn du nichts setzt, liest der Fallback die bestehende `data/.master-key` weiter
+(identischer Key, kein Datenverlust). Plaintext-Bestände (`settings.json`/
+`storage.json`) werden lazy migriert, die alte `data/tocco.db` automatisch nach
+`wissen.db` umbenannt.
+
+Willst du den Key **off-volume** holen, den **vorhandenen** Key exportieren —
+nicht einen neuen erzeugen:
+
+```bash
+# 1. bestehenden Key als hex ausgeben
+node -e "console.log(require('fs').readFileSync('data/.master-key').toString('hex'))"
+# 2. Ausgabe als MASTER_KEY in .env / Docker-Secret setzen
+# 3. erst DANN data/.master-key löschen
+```
+
+> ⚠️ Setzt du `MASTER_KEY` auf einen **anderen** Wert als den bestehenden Key,
+> bricht der Start bewusst laut ab (`settings.json`/`storage.json` wären sonst
+> unlesbar).
 
 ---
 
