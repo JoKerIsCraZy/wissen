@@ -70,7 +70,9 @@ Wer WISSen selbst betreibt, sollte beachten:
 4. **HTTPS verwenden** für alle externen Endpoints — kein Klartext-Login.
 5. **Docker-Container nicht als root** laufen lassen, soweit möglich.
 6. **Backups verschlüsseln**, da sie Credentials und persönliche Noten enthalten können.
-7. **Dependencies aktuell halten** — regelmässig `npm audit` bzw. Dependabot-Updates einspielen.
+7. **Master-Key off-volume ablegen** — `MASTER_KEY` (env) oder `MASTER_KEY_FILE` (Docker-Secret) setzen, statt den auto-generierten `data/.master-key` zu nutzen. Sonst liegt der AES-Key im selben `data/`-Volume wie die verschlüsselten Daten und reist in jedem Backup/Snapshot mit — die Verschlüsselung von `settings.json` und `storage.json` bringt dann bei einem Volume-Leak nichts. Siehe `.env.example`.
+8. **`data/wissen.db` liegt im Klartext** (Noten, Dozentennamen, Stundenplan, Anwesenheit) — `node:sqlite` kann die DB-Datei nicht verschlüsseln. Für At-Rest-Schutz das `data/`-Verzeichnis auf ein **verschlüsseltes Volume** legen (LUKS / gocryptfs / BitLocker / NAS Encrypted Folder). Fertiges Setup: `docker-compose.encrypted.yml.example`.
+9. **Dependencies aktuell halten** — regelmässig `npm audit` bzw. Dependabot-Updates einspielen.
 
 ## Verantwortlichkeit der Nutzer
 

@@ -30,6 +30,22 @@ Ohne diese beiden kann WISSen sich nicht beim Microsoft-SSO einloggen.
 
 ## Erweitert
 
+### Verschlüsselung (Master-Key)
+
+AES-256-GCM für die Secrets in `settings.json` **und** die Session in `storage.json`. Ladereihenfolge: erste vorhandene Quelle gewinnt.
+
+| Variable | Default | Beschreibung |
+|---|---|---|
+| `MASTER_KEY` | — | 32 Bytes als 64 Hex-Chars **oder** base64. Bevorzugt — liegt off-volume, kein Leak über `data/`-Backups |
+| `MASTER_KEY_FILE` | — | Pfad zu einer Key-Datei (z. B. Docker-Secret). Inhalt: rohe 32 Byte oder hex/base64-Text |
+| *(Fallback)* | `data/.master-key` | Auto-generiert beim ersten Start (Mode `0600`), falls keine env-Quelle gesetzt |
+
+Key generieren: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
+
+:::caution[Off-volume ablegen]
+Ohne `MASTER_KEY`/`MASTER_KEY_FILE` liegt der Key in `data/.master-key` und reist in jedem Volume-Backup mit — die Verschlüsselung schützt dann nicht gegen Backup-Leaks. Details & Migrationspfad: [Sicherheit → Master-Key](/konfiguration/sicherheit/#master-key--ladereihenfolge).
+:::
+
 ### URLs (env-only, kein UI-Zugriff = SSRF-Schutz)
 
 | Variable | Default | Beschreibung |
@@ -70,5 +86,5 @@ Niemals `true` setzen — das erlaubt IP-Spoofing über `X-Forwarded-For`-Header
 :::
 
 :::tip[Credentials-Quelle]
-Setze `ALLOW_UI_CREDENTIALS=false` wenn du strikt nur `.env` als Secret-Quelle willst (z. B. bei Vault/SOPS-Setups). Default `true` ist okay weil `data/settings.json` AES-256-GCM-verschlüsselt ist.
+Setze `ALLOW_UI_CREDENTIALS=false` wenn du strikt nur `.env` als Secret-Quelle willst (z. B. bei Vault/SOPS-Setups). Default `true` ist okay weil `data/settings.json` (und `storage.json`) AES-256-GCM-verschlüsselt sind — am besten mit Master-Key off-volume via `MASTER_KEY`.
 :::
