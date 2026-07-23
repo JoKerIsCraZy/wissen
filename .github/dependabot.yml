@@ -28,6 +28,11 @@ updates:
     labels:
       - "dependencies"
       - "frontend"
+    ignore:
+      # @sveltejs/kit erlaubt nur typescript ^5.3.3 || ^6.0.0 (peerOptional);
+      # TS-7-Major-Bumps brechen `npm ci` (ERESOLVE) — erst freigeben, wenn Kit TS 7 unterstützt.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
   # Dockerfile base image
   - package-ecosystem: "docker"
@@ -51,3 +56,9 @@ updates:
       prefix: "ci"
     labels:
       - "ci"
+    groups:
+      # init/autobuild/analyze/upload-sarif muessen dieselbe Version haben,
+      # sonst bricht CodeQL mit einem Config-Versions-Mismatch ab.
+      codeql-action:
+        patterns:
+          - "github/codeql-action*"
