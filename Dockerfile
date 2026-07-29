@@ -20,11 +20,25 @@ ENV NODE_ENV=production \
 # (fixes Trivy HIGH in /usr/lib/node_modules/npm: tar, minimatch, picomatch,
 #  and MEDIUM/LOW in openssl, libssl3, libudev1, libgdk-pixbuf, libcap2,
 #  libgraphite2 1.3.14-1ubuntu0.1 — CVE-2026-50593 integer-underflow / OOB read)
-# npm 11.18.0 also bundles brace-expansion 5.0.6 (CVE-2026-45149), tar 7.5.16
-# (node-tar PAX long-name/long-link header smuggling) and undici 6.27.0 —
-# fixes CVE-2026-12151 (HIGH, WebSocket DoS), CVE-2026-9679 (MEDIUM,
-# Set-Cookie header injection) and CVE-2026-11525/-6733 (LOW) in
-# /usr/lib/node_modules/npm/node_modules/undici.
+# npm 11.18.0 also bundles undici 6.27.0 — fixes CVE-2026-12151 (HIGH,
+# WebSocket DoS), CVE-2026-9679 (MEDIUM, Set-Cookie header injection) and
+# CVE-2026-11525/-6733 (LOW) in /usr/lib/node_modules/npm/node_modules/undici.
+#
+# ACHTUNG: npm selbst kann brace-expansion (CVE-2026-14257, fixed 5.0.8) und
+# tar (GHSA-r292-9mhp-454m, fixed 7.5.21) NICHT fixen — npm 11.18.0 und 12.0.1
+# bündeln beide unverändert 5.0.7 / 7.5.19, das Stock-npm des Base-Images
+# (11.16.0) sogar die älteren 5.0.6 / 7.5.15. Es gibt kein npm-Release mit den
+# gepatchten Versionen. Deshalb wird npm im runtime-Stage komplett entfernt
+# (siehe unten) statt hier hochgezogen — npm wird zur Laufzeit nie aufgerufen.
+#
+# `rm -rf /root/.npm` räumt Cache + Debug-Log weg, die `npm cache clean --force`
+# selbst noch anlegt — reine Hygiene für unsere eigene Layer.
+# NICHT verwechseln mit den drei Trivy-Findings `azure-sas-token` in
+# /root/.npm/_logs bzw. /root/.npm/_cacache: die stammen aus der Layer-Historie
+# des Playwright-Base-Images (Microsofts eigener devdiv-Feed) und sind von hier
+# aus nicht behebbar — ein `rm` in einer abgeleiteten Layer entfernt sie nicht
+# aus den darunterliegenden Blobs. Verifiziert: das pure Base-Image liefert
+# exakt dieselben Findings. Siehe .trivyignore.
 # Also installs gosu for PUID/PGID privilege drop in the entrypoint.
 # DEBIAN_FRONTEND=noninteractive prevents tzdata's interactive geographic-area
 # prompt during `apt upgrade` from blocking the build.
@@ -62,7 +76,8 @@ RUN echo "apt-refresh=${APT_REFRESH}" \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/* \
  && npm install -g npm@11.18.0 \
- && npm cache clean --force
+ && npm cache clean --force \
+ && rm -rf /root/.npm
 
 # --------- deps: install production dependencies ---------
 # `--ignore-scripts` skips the root package.json's `postinstall` hook
@@ -95,6 +110,26 @@ RUN npm run build
 
 # --------- runtime: final production image ---------
 FROM base AS runtime
+
+# Package-Manager aus dem Runtime-Image werfen. Sie werden hier nie gebraucht
+# (CMD ist `node`, entrypoint.sh nutzt nur bash/gosu/chown/usermod/groupmod;
+# `npm` taucht in src/ ausschliesslich in Kommentaren und Fehlertexten auf),
+# schleppen aber dauerhaft verwundbare gebundelte Deps mit — brace-expansion
+# 5.0.7 (CVE-2026-14257, HIGH) und tar 7.5.19 (GHSA-r292-9mhp-454m, MEDIUM),
+# für die es kein npm-Release mit Fix gibt. Die Build-Stages `deps` und
+# `webbuild` sind nicht betroffen, die haben ihr eigenes npm aus `base`.
+#
+# Bewusst KEIN Image-Size-Gewinn: die Dateien bleiben in der base-Layer
+# liegen. Der Punkt ist, dass sie im finalen Dateisystem nicht mehr
+# existieren und damit weder aufrufbar noch von Scannern erreichbar sind.
+RUN rm -rf /usr/lib/node_modules/npm \
+           /usr/lib/node_modules/corepack \
+           /usr/lib/node_modules/yarn \
+           /usr/bin/npm /usr/bin/npx \
+           /usr/bin/corepack \
+           /usr/bin/yarn /usr/bin/yarnpkg \
+           /root/.npm \
+ && ! command -v npm
 
 # Create app user (playwright image already has 'pwuser' but for clarity, use app)
 RUN groupadd -r app && useradd -r -g app -m -d /home/app app
