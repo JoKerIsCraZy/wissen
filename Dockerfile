@@ -38,7 +38,8 @@ ENV NODE_ENV=production \
 # des Playwright-Base-Images (Microsofts eigener devdiv-Feed) und sind von hier
 # aus nicht behebbar — ein `rm` in einer abgeleiteten Layer entfernt sie nicht
 # aus den darunterliegenden Blobs. Verifiziert: das pure Base-Image liefert
-# exakt dieselben Findings. Siehe .trivyignore.
+# exakt dieselben Findings. Path-scoped unterdrückt in .trivyignore.yaml —
+# ein `azure-sas-token` ausserhalb von /root/.npm wird weiterhin gemeldet.
 # Also installs gosu for PUID/PGID privilege drop in the entrypoint.
 # DEBIAN_FRONTEND=noninteractive prevents tzdata's interactive geographic-area
 # prompt during `apt upgrade` from blocking the build.
