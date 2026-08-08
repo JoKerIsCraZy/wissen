@@ -48,7 +48,10 @@ ENV NODE_ENV=production \
 # date (YYYY-MM-DD) so PR/push builds on the same day share cache (fast) while
 # the first build of each day pulls fresh apt security state. Local builds use
 # the default below; bump it manually if you need a forced refresh.
-USER root
+#
+# Numerische UID statt `USER root` — hadolint DL3066: ein Name muss vom Host
+# auflösbar sein, UID 0 ist immer eindeutig. Semantisch identisch.
+USER 0
 ARG DEBIAN_FRONTEND=noninteractive
 ARG APT_REFRESH=2026-06-18
 # libc-bin's ldconfig post-install script intermittently SIGSEGVs (exit 139)
@@ -173,8 +176,10 @@ RUN mkdir -p /app/data /home/app/.cache \
 EXPOSE 3000
 
 # Healthcheck: verify server is responding on /healthz
+# Exec-Form (JSON) statt Shell-Form — hadolint DL3025. Es braucht keine Shell:
+# den PORT-Fallback macht node selbst via process.env, nicht die Shell.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD node -e "require('http').get('http://127.0.0.1:'+(process.env.PORT||3000)+'/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+  CMD ["node", "-e", "require('http').get('http://127.0.0.1:'+(process.env.PORT||3000)+'/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
