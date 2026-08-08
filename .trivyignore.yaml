@@ -1,0 +1,74 @@
+# Trivy ignore list — every entry must include a justification + review date.
+# https://trivy.dev/latest/docs/configuration/filtering/
+#
+# YAML statt der frueheren Plaintext-`.trivyignore`: nur das YAML-Format kennt
+# `paths:`, und ohne Pfad-Scope liesse sich der azure-sas-token-Eintrag unten
+# nur global abschalten — dann wuerde auch ein echtes Leak in src/ verschluckt.
+# Verifiziert mit Trivy v0.72.0 (die in .github/workflows/trivy.yml gepinnte
+# Version): Fund in root/.npm/** wird unterdrueckt, identischer Fund in src/
+# weiterhin gemeldet.
+
+misconfigurations:
+  # ---------------------------------------------------------------------------
+  # DS-0002: "Image user should not be 'root'"
+  #
+  # Justification:
+  #   The container intentionally boots as root so docker/entrypoint.sh can
+  #     1. apply ${PUID}/${PGID} to the in-container `app` user (LinuxServer.io
+  #        pattern, required for bind-mount writes on Unraid/Synology/etc),
+  #     2. chown the /app/data volume to that UID/GID,
+  #     3. drop privileges to `app` via `gosu app "$@"` before exec'ing node.
+  #   Static analysis cannot follow the runtime gosu drop, so Trivy flags the
+  #   final USER directive even though the actual node process never runs as
+  #   root. Equivalent finding is suppressed in linuxserver/* images.
+  #
+  #   Beide ID-Schreibweisen bleiben stehen: Trivy v0.72.0 meldet die Regel als
+  #   `DS-0002`, aeltere/andere Ausgabepfade als `AVD-DS-0002`.
+  #
+  # Reviewed: 2026-04-25 (PR #11) — bestaetigt 2026-08-08
+  # ---------------------------------------------------------------------------
+  - id: AVD-DS-0002
+    statement: >-
+      Intended: entrypoint applies PUID/PGID and chowns the data volume as
+      root, then drops to the unprivileged `app` user via gosu before exec.
+  - id: DS-0002
+    statement: >-
+      Intended: entrypoint applies PUID/PGID and chowns the data volume as
+      root, then drops to the unprivileged `app` user via gosu before exec.
+
+secrets:
+  # ---------------------------------------------------------------------------
+  # azure-sas-token in /root/.npm/** (Cache-Index + Debug-Logs)
+  #
+  # Justification:
+  #   Diese SAS-Tokens gehoeren Microsoft, nicht uns: sie stecken in der
+  #   Layer-Historie des Playwright-Base-Images (mcr.microsoft.com/playwright,
+  #   interner devdiv-Feed) und stammen aus npm-Installs, die Microsoft beim
+  #   Bauen des Base-Images ausgefuehrt hat. Verifiziert: das pure Base-Image
+  #   liefert exakt dieselben Findings.
+  #
+  #   Nicht behebbar von hier aus. Der Dockerfile raeumt zwar `/root/.npm` weg
+  #   (`rm -rf` in der base-Stage), aber Trivys Secret-Scanner wertet jede Layer
+  #   einzeln aus — ein Delete in einer abgeleiteten Layer entfernt die Datei
+  #   nicht aus den darunterliegenden Blobs. Kein Rotieren moeglich, da es
+  #   fremde Credentials sind; wir koennen sie nur als Base-Image-Rauschen
+  #   klassifizieren.
+  #
+  #   Pfad-Scope ist Absicht: ein `azure-sas-token` irgendwo SONST im Image
+  #   (z.B. in unserem eigenen /app) wird weiterhin als HIGH gemeldet.
+  #   Beide Pfadformen, weil Trivy je nach Scan-Modus mit und ohne fuehrenden
+  #   Slash targetet (fs-Scan: `root/...`, image-Scan teils `/root/...`).
+  #
+  #   Aufloesen wuerde das nur ein Base-Image ohne diesen npm-Cache — beim
+  #   naechsten groesseren Playwright-Bump pruefen, ob die Findings weg sind.
+  #
+  # Reviewed: 2026-08-08 (GitHub code scanning alerts #153, #154, #155)
+  # ---------------------------------------------------------------------------
+  - id: azure-sas-token
+    paths:
+      - "root/.npm/**"
+      - "/root/.npm/**"
+    statement: >-
+      Microsoft-owned SAS tokens baked into the Playwright base image's npm
+      cache layers. Not ours, not rotatable, not removable from underlying
+      blobs. Scoped to root/.npm so real leaks elsewhere still surface.
