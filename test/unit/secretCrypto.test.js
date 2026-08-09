@@ -72,6 +72,8 @@ test('invalid blob format throws descriptively', () => {
 test('encryptSettings only touches SECRET_FIELDS', () => {
   const c = setupTmp();
   const input = {
+    // userPk ist bewusst KEIN Secret (Tocco-Datensatz-ID) → bleibt Klartext.
+    userPk: '12345',
     msEmail: 'user@example.com',
     msPassword: 'p4ssw0rd',
     telegramToken: 'bot-token-here',
@@ -80,12 +82,13 @@ test('encryptSettings only touches SECRET_FIELDS', () => {
     scheduleDays: [1, 2, 3]
   };
   const out = c.encryptSettings(input);
-  assert.strictEqual(out.msEmail, 'user@example.com', 'non-secret untouched');
+  assert.strictEqual(out.userPk, '12345', 'non-secret untouched');
   assert.strictEqual(out.intervalMinutes, 60);
   assert.strictEqual(out.autoRun, true);
   assert.deepStrictEqual(out.scheduleDays, [1, 2, 3]);
   assert.ok(c.isEncrypted(out.msPassword), 'secret field encrypted');
   assert.ok(c.isEncrypted(out.telegramToken));
+  assert.ok(c.isEncrypted(out.msEmail), 'msEmail is a secret field');
 });
 
 test('decryptSettings is tolerant of mixed plaintext + encrypted', () => {
@@ -95,12 +98,16 @@ test('decryptSettings is tolerant of mixed plaintext + encrypted', () => {
   const partiallyEncrypted = {
     msPassword: 'legacy-plaintext',
     telegramToken: c.encrypt('new-encrypted-token'),
-    msEmail: 'unaffected@example.com'
+    // msEmail ist seit dem SECRET_FIELDS-Ausbau ebenfalls ein Secret — hier
+    // im Legacy-Klartext-Zustand, muss also unverändert durchgereicht werden.
+    msEmail: 'legacy@example.com',
+    userPk: 'unaffected-12345'
   };
   const out = c.decryptSettings(partiallyEncrypted);
   assert.strictEqual(out.msPassword, 'legacy-plaintext');
   assert.strictEqual(out.telegramToken, 'new-encrypted-token');
-  assert.strictEqual(out.msEmail, 'unaffected@example.com');
+  assert.strictEqual(out.msEmail, 'legacy@example.com');
+  assert.strictEqual(out.userPk, 'unaffected-12345');
 });
 
 test('master key persisted to disk with mode 0600 (where supported)', () => {
