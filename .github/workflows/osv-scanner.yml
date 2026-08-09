@@ -2,7 +2,13 @@ name: OSV-Scanner
 
 # Googles OSV-Datenbank (Open Source Vulnerabilities) — ergänzt
 # Trivy und Dependabot, deckt oft Lücken in der GHSA-DB ab.
-# Scannt package-lock.json (root) + web-svelte/package-lock.json.
+# Scannt package-lock.json (root) + web-svelte/package-lock.json + site/.
+#
+# site/ ist die Astro-Doku (statisches HTML auf GitHub Pages) — die Deps laufen
+# also NIE im Browser eines Besuchers oder auf einem Server. Trotzdem gescannt,
+# weil `npm ci` + `astro build` fremden Code im CI ausführen: ein kompromittiertes
+# Build-Paket könnte das Artefakt site/dist vergiften, das anschliessend nach
+# Pages deployed wird. Runtime-CVEs dort sind irrelevant, Supply-Chain nicht.
 
 on:
   push:
@@ -12,6 +18,8 @@ on:
       - 'package-lock.json'
       - 'web-svelte/package.json'
       - 'web-svelte/package-lock.json'
+      - 'site/package.json'
+      - 'site/package-lock.json'
       - '.github/workflows/osv-scanner.yml'
   pull_request:
     branches: [main]
@@ -20,6 +28,8 @@ on:
       - 'package-lock.json'
       - 'web-svelte/package.json'
       - 'web-svelte/package-lock.json'
+      - 'site/package.json'
+      - 'site/package-lock.json'
   schedule:
     # wöchentlich, Donnerstag 04:37 UTC
     - cron: '37 4 * * 4'
@@ -37,10 +47,11 @@ jobs:
     name: OSV-Scanner
     uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
     with:
-      # Scan-Paths: root + Svelte-Frontend
+      # Scan-Paths: root + Svelte-Frontend + Astro-Doku
       scan-args: |-
         --lockfile=./package-lock.json
         --lockfile=./web-svelte/package-lock.json
+        --lockfile=./site/package-lock.json
       # SARIF upload aktivieren
       upload-sarif: true
     permissions:
