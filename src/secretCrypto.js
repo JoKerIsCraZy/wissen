@@ -59,9 +59,13 @@ const ENV_KEY_FILE = 'MASTER_KEY_FILE';
 const PREFIX = 'enc:v1:';
 
 // Welche Felder im Settings-Objekt verschlüsselt werden. Single source of truth.
-// Muss konsistent zu ALLOWED_UI_CREDENTIAL_KEYS in settings.js bleiben (sonst
-// kann der User über die UI Secrets editieren die wir nicht verschlüsseln).
-const SECRET_FIELDS = Object.freeze(['msPassword', 'telegramToken']);
+//
+// Deckt die schützenswerten Keys aus ALLOWED_UI_CREDENTIAL_KEYS (settings.js)
+// ab. Bewusst NICHT enthalten ist `userPk`: das ist eine Tocco-Datensatz-ID,
+// kein Geheimnis — sie authentifiziert nichts. `msEmail` dagegen schon: ohne
+// sie wäre im Threat-Model dieser Datei (Backup-/Snapshot-Leak von data/) der
+// Portal-Benutzername im Klartext neben dem verschlüsselten Passwort gelandet.
+const SECRET_FIELDS = Object.freeze(['msPassword', 'telegramToken', 'msEmail']);
 
 // Lazy-loaded master key — kein require-time Side-Effect, damit Tests die
 // Reihenfolge (chdir → require) kontrollieren können.
