@@ -65,6 +65,12 @@ const DEFAULTS = Object.freeze({
   telegramEnabled: false,
   telegramToken: '',
   telegramAllowedUserId: null,
+  // Optional: Chat, in dem der Bot antworten darf. null = privater Chat des
+  // Whitelist-Users (dessen Chat-ID gleich seiner User-ID ist). Nur setzen,
+  // wenn der Bot bewusst in einer bestimmten Gruppe laufen soll — dort sehen
+  // ALLE Mitglieder die abgerufenen Noten, Absenzen und Stundenplaene.
+  // Negative Werte sind zulaessig: Gruppen-Chat-IDs sind bei Telegram negativ.
+  telegramAllowedChatId: null,
   // Datenquelle: 'rest' (nice2 REST v2 + DWR getDetailData) ist seit Go-Live der
   // Default. 'scrape' (DOM-Scraping) bleibt als Fallback via DATA_SOURCE=scrape.
   // env-only (DATA_SOURCE), env hat Vorrang vor settings.json.
@@ -92,7 +98,8 @@ const ALLOWED_UI_KEYS = Object.freeze([
   'slowMo',
   'detailScrapeConcurrency',
   'telegramEnabled',
-  'telegramAllowedUserId'
+  'telegramAllowedUserId',
+  'telegramAllowedChatId'
 ]);
 
 // Zusätzliche Keys wenn ALLOW_UI_CREDENTIALS=true.
@@ -175,6 +182,10 @@ function envToSettings(env) {
   if (env.TELEGRAM_ALLOWED_USER_ID != null) {
     const n = parseInt(env.TELEGRAM_ALLOWED_USER_ID, 10);
     if (!Number.isNaN(n)) s.telegramAllowedUserId = n;
+  }
+  if (env.TELEGRAM_ALLOWED_CHAT_ID != null) {
+    const n = parseInt(env.TELEGRAM_ALLOWED_CHAT_ID, 10);
+    if (!Number.isNaN(n)) s.telegramAllowedChatId = n;
   }
   if (env.TELEGRAM_ENABLED != null) s.telegramEnabled = env.TELEGRAM_ENABLED === 'true';
   // Datenquelle env-only: nur 'rest' aktiviert den REST-Producer, alles andere
@@ -342,6 +353,17 @@ function coerce(patch) {
     } else {
       const n = Number(out.telegramAllowedUserId);
       out.telegramAllowedUserId = (Number.isFinite(n) && n > 0) ? Math.floor(n) : null;
+    }
+  }
+  if ('telegramAllowedChatId' in out) {
+    if (out.telegramAllowedChatId == null || out.telegramAllowedChatId === '') {
+      out.telegramAllowedChatId = null;
+    } else {
+      // Anders als die User-ID darf das negativ sein — Gruppen- und
+      // Supergruppen-Chat-IDs sind bei Telegram negativ. Nur 0 und Unsinn
+      // fallen auf null zurueck (= privater Chat des Whitelist-Users).
+      const n = Number(out.telegramAllowedChatId);
+      out.telegramAllowedChatId = (Number.isFinite(n) && n !== 0) ? Math.trunc(n) : null;
     }
   }
   for (const k of ['msEmail', 'msPassword', 'userPk', 'baseUrl', 'notenUrl', 'stundenplanUrl', 'absenzenUrl', 'telegramToken']) {

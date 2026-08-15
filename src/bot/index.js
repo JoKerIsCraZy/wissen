@@ -36,6 +36,12 @@ async function start(cfg) {
 
   state.token = cfg.token;
   state.allowedUserId = Number(cfg.allowedUserId);
+  // Default: der private Chat des Whitelist-Users. Bei Telegram ist die
+  // Chat-ID eines privaten Chats identisch mit der User-ID des Gegenuebers,
+  // das ist also genau "nur im Direktchat mit mir".
+  state.allowedChatId = cfg.allowedChatId != null && cfg.allowedChatId !== ''
+    ? Number(cfg.allowedChatId)
+    : Number(cfg.allowedUserId);
   state.logger = cfg.logger || null;
   state.triggerScrape = cfg.triggerScrape || null;
   state.getStatus = cfg.getStatus || null;
@@ -43,7 +49,10 @@ async function start(cfg) {
 
   try {
     const me = await tg('getMe');
-    state.logger?.log(`📱 Telegram-Bot @${me.username} online, Whitelist: ${state.allowedUserId}`, 'info');
+    const chatNote = state.allowedChatId === state.allowedUserId
+      ? 'nur Direktchat'
+      : `Chat ${state.allowedChatId}`;
+    state.logger?.log(`📱 Telegram-Bot @${me.username} online, Whitelist: ${state.allowedUserId} (${chatNote})`, 'info');
     // Set Command-Menü im Telegram-Client ("/" zeigt Liste).
     // Fire-and-forget (keine await) damit ein langsamer setMyCommands-Call
     // den Bot-Start nicht blockiert. Errors werden geloggt statt verschluckt
