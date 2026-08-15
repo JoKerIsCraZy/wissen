@@ -458,6 +458,9 @@ server.listen(initial.port, '0.0.0.0', () => {
     bot.start({
       token: initial.telegramToken,
       allowedUserId: initial.telegramAllowedUserId,
+      // null → privater Chat des Whitelist-Users (Default). Nur setzen, wenn
+      // der Bot bewusst in einer Gruppe laufen soll.
+      allowedChatId: initial.telegramAllowedChatId,
       logger,
       triggerScrape: async () => {
         if (state.running) return { triggered: false, reason: 'bereits aktiv' };

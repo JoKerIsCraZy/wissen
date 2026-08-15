@@ -171,6 +171,31 @@ async function handleUpdate(update) {
     return;
   }
 
+  // Zweite Schranke: WO darf der Bot antworten?
+  //
+  // Der Absender-Check oben autorisiert nur, WER etwas ausloest — das Ziel
+  // jeder Antwort ist aber `chat.id` aus dem Update, und das ist von aussen
+  // beeinflussbar. Ohne diese Pruefung genuegte es, den Whitelist-User in eine
+  // Gruppe einzuladen (Telegrams Default erlaubt jedem, andere hinzuzufuegen)
+  // und den Bot dazu: ein einziger Befehl des Users rendert dort Noten,
+  // Durchschnitt, Stundenplan und Absenzen fuer alle Mitglieder, und jeder in
+  // der Gruppe kann per Inline-Button weiternavigieren oder eine Abfrage
+  // ausloesen.
+  //
+  // Ausserdem haelt die Pruefung die Message-IDs sauber getrennt:
+  // state.lastMenuMessageId und state.multiMessageIds sind global. Ohne
+  // Chat-Bindung konnten in Chat A notierte IDs spaeter in Chat B an
+  // deleteMessage/editMessageText geraten.
+  const chatId = update.message?.chat?.id ?? update.callback_query?.message?.chat?.id;
+  if (chatId == null || chatId !== state.allowedChatId) {
+    state.logger?.log(
+      `📱 Abgelehnt: Chat ${chatId} ist nicht der erlaubte Chat (${state.allowedChatId}) — ` +
+      'Antwort unterdrueckt, damit keine Daten in fremde Chats gelangen.',
+      'warn'
+    );
+    return;
+  }
+
   if (update.callback_query) return handleCallback(update.callback_query);
   if (update.message) return handleMessage(update.message);
   // Unknown update type → silent drop (siehe Whitelist-Kommentar oben).

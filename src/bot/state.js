@@ -3,6 +3,19 @@
 const state = {
   token: null,
   allowedUserId: null,
+  // Chat, in dem der Bot ueberhaupt antworten darf. Default ist der private
+  // Chat des Whitelist-Users (dessen Chat-ID identisch mit seiner User-ID ist).
+  //
+  // Ohne diese Schranke war NUR der Absender autorisiert, nie das Ziel: der Bot
+  // hat jede Antwort an `msg.chat.id` aus dem Update geschickt. Wurde der
+  // Whitelist-User in eine fremde Gruppe eingeladen, in der auch der Bot ist,
+  // rendert ein einziger Befehl von ihm dort Noten, Durchschnitt, Stundenplan
+  // und Absenzen fuer alle Gruppenmitglieder — und erlaubt jedem in der Gruppe,
+  // per Inline-Button weiterzunavigieren und Abfragen auszuloesen.
+  //
+  // Via Setting telegramAllowedChatId ueberschreibbar, falls jemand den Bot
+  // bewusst in einer bestimmten Gruppe betreiben will.
+  allowedChatId: null,
   offset: 0,
   running: false,
   logger: null,
