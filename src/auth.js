@@ -5,6 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 
 const { isApiPath, isEventsPath } = require('./shared/apiPath');
+const sseTicket = require('./sseTicket');
 
 // =============================================================
 // Paths
@@ -203,17 +204,27 @@ function requireAuth({ token, logger }) {
     // Handler. Siehe src/shared/apiPath.js für die ausführliche Begründung.
     if (!isApiPath(req.path)) return next();
 
-    // Token aus Header oder (NUR für SSE) Query-String.
-    // Query-String-Auth ist auf /api/events beschränkt, weil EventSource
-    // im Browser keine Custom-Header setzen kann. Auf allen anderen Routen
-    // wäre `?token=` ein Leak-Vektor (landet in nginx-Access-Logs, Browser-
-    // History, Referrer-Header bei Outbound-Links).
+    // Der API-Token kommt ausschliesslich aus dem Authorization-Header.
+    //
+    // Einzige Ausnahme ist /api/events: EventSource kann im Browser keine
+    // Custom-Header setzen. Frueher wurde deshalb der Token selbst als
+    // `?token=` in die URL gehaengt — und landete damit vollstaendig in
+    // nginx-Access-Logs, Log-Shipping-Pipelines und APM-Traces. Da der Token
+    // statisch ist, nie ablaeuft und JEDE /api-Route autorisiert, war ein
+    // einziger geleakter Logeintrag Vollzugriff auf Dauer; durch die
+    // Reconnect-Schleife des SSE-Clients wurde er sogar fortlaufend
+    // nachgeloggt.
+    //
+    // Stattdessen holt der Client per authentifiziertem
+    // POST /api/events/ticket (Token im Header) ein kurzlebiges Einmal-Ticket
+    // und haengt nur dieses an die URL. Was in den Logs landet, ist damit kein
+    // Credential mehr, sondern ein bereits verbrauchter Zufallswert.
     let provided = null;
     const auth = req.get('Authorization');
     if (auth && /^Bearer\s+/i.test(auth)) {
       provided = auth.replace(/^Bearer\s+/i, '').trim();
-    } else if (isEventsPath(req.path) && typeof req.query.token === 'string') {
-      provided = req.query.token;
+    } else if (isEventsPath(req.path)) {
+      if (sseTicket.consume(req.query.ticket)) return next();
     }
 
     if (!tokensMatch(provided)) {

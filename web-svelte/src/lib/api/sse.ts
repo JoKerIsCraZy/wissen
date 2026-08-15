@@ -103,12 +103,38 @@ export function connectEvents(opts: SseClientOptions = {}): SseClient {
 		}
 	}
 
-	function buildUrl(): string {
-		// Token override wins; otherwise pull lazily so token rotation between
-		// reconnects is picked up automatically.
+	/**
+	 * Holt ein kurzlebiges Einmal-Ticket für den SSE-Stream.
+	 *
+	 * Früher wurde stattdessen der API-Token selbst als `?token=` an die
+	 * EventSource-URL gehängt. Query-Strings landen vollständig in
+	 * Reverse-Proxy-Access-Logs; da der Token statisch ist, nie abläuft und
+	 * jede /api-Route autorisiert, war ein einziger Logeintrag Vollzugriff auf
+	 * Dauer — und der Backoff-Reconnect unten hat ihn fortlaufend nachgeloggt.
+	 *
+	 * Jetzt reist der Token im Authorization-Header (landet in keinem Log) und
+	 * nur das Ticket in der URL. Ein Ticket ist einmalig und nach 30s wertlos.
+	 *
+	 * Der Token wird bewusst erst hier gelesen, damit eine Rotation zwischen
+	 * zwei Reconnects automatisch greift.
+	 */
+	async function fetchTicket(): Promise<string | null> {
 		const tok = opts.token !== undefined ? opts.token : getToken();
-		const base = '/api/events';
-		return tok ? `${base}?token=${encodeURIComponent(tok)}` : base;
+		if (!tok) return null;
+		try {
+			const res = await fetch('/api/events/ticket', {
+				method: 'POST',
+				credentials: 'same-origin',
+				headers: { Authorization: `Bearer ${tok}` }
+			});
+			if (!res.ok) return null;
+			const data: unknown = await res.json();
+			const ticket = (data as { ticket?: unknown } | null)?.ticket;
+			return typeof ticket === 'string' && ticket.length > 0 ? ticket : null;
+		} catch {
+			// Netzwerkfehler — der Backoff-Reconnect versucht es erneut.
+			return null;
+		}
 	}
 
 	function dispatch(eventName: string, raw: string) {
@@ -164,9 +190,27 @@ export function connectEvents(opts: SseClientOptions = {}): SseClient {
 			return;
 		}
 		setState(es ? 'reconnecting' : 'connecting');
+		// Der Ticket-Abruf ist asynchron; der Rest des Aufbaus läuft in
+		// openWithTicket() weiter. Fehler dort landen im Backoff-Reconnect.
+		void openWithTicket();
+	}
+
+	async function openWithTicket() {
+		const ticket = await fetchTicket();
+
+		// Zwischen Ticket-Abruf und Verbindungsaufbau kann close() gelaufen
+		// sein — dann darf hier keine neue EventSource mehr entstehen.
+		if (manuallyClosed) return;
+
+		if (!ticket) {
+			// Kein Token, 401 oder Netzwerkfehler. Backoff greift; sobald wieder
+			// ein gültiger Token vorliegt, klappt der nächste Versuch.
+			scheduleReconnect();
+			return;
+		}
 
 		try {
-			es = new EventSource(buildUrl());
+			es = new EventSource(`/api/events?ticket=${encodeURIComponent(ticket)}`);
 		} catch {
 			scheduleReconnect();
 			return;

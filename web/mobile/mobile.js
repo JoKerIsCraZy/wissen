@@ -594,10 +594,35 @@ function setBackButton(visible) {
 
 /* ============================================================
    SSE — Server-Sent Events für Live-Status. Pattern wie Dashboard.
-   Reconnect mit exponentiellem Backoff. Token kommt via Query-String,
-   weil EventSource keine Custom-Headers setzen kann.
+   Reconnect mit exponentiellem Backoff.
+
+   EventSource kann keine Custom-Headers setzen. Früher wurde deshalb der
+   API-Token selbst als `?token=` an die URL gehängt — und landete damit
+   vollständig in nginx-Access-Logs, Log-Pipelines und Backups davon. Der
+   Token ist statisch, läuft nie ab und autorisiert jede /api-Route: ein
+   einziger geleakter Logeintrag war Vollzugriff auf Dauer.
+
+   Jetzt holt der Client per POST /api/events/ticket (Token im Header, landet
+   in keinem Log) ein Einmal-Ticket und hängt nur dieses an die URL. Ein
+   Ticket ist nach einmaliger Nutzung verbraucht und nach 30s ohnehin
+   wertlos — aus einem Log ist es nicht mehr verwertbar.
    ============================================================ */
-function connectSSE() {
+async function fetchSseTicket(token) {
+  try {
+    const res = await fetch('/api/events/ticket', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { Authorization: 'Bearer ' + token }
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data && typeof data.ticket === 'string' ? data.ticket : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function connectSSE() {
   // Defensive cleanup: connectSSE() wird auch von Login-Success + boot()
   // aufgerufen. Ohne diesen Guard sammeln sich parallele EventSources mit
   // duplicate Listenern → handleSseEvent feuert N-mal pro Event.
@@ -607,8 +632,25 @@ function connectSSE() {
   }
   const token = getToken();
   if (!token) return;
+
+  const ticket = await fetchSseTicket(token);
+  if (!ticket) {
+    // 401 (Token ungültig) oder Netzwerkfehler — nicht in einer Schleife
+    // weiterprobieren, gleiches Verhalten wie bei einem gescheiterten
+    // Erst-Connect unten.
+    return;
+  }
+
+  // Zwischen Ticket-Abruf und hier kann ein weiterer connectSSE()-Aufruf
+  // bereits eine Verbindung aufgebaut haben (Login-Success + boot() kurz
+  // nacheinander). Die dann verwerfen statt zu duplizieren.
+  if (sse) {
+    try { sse.close(); } catch (_) {}
+    sse = null;
+  }
+
   try {
-    sse = new EventSource('/api/events?token=' + encodeURIComponent(token));
+    sse = new EventSource('/api/events?ticket=' + encodeURIComponent(ticket));
   } catch (_) {
     return;
   }
