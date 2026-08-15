@@ -336,9 +336,12 @@ app.get('/healthz/ready', (req, res) => {
 // ein einziger PWA-Cold-Load brannte 20-40 Slots. User hit 429 quickly,
 // Static-Asset-429s waren dabei unsichtbar (broken CSS/JS, kein Toast).
 // Die anderen Limiter (auth-failure, auth-brute-force, sse-failure) haben
-// eigene `skip: !req.path.startsWith('/api/')` Predicates — sie überspringen
-// also alles AUSSERHALB von /api/ und greifen auf /api/ selbst. Dadurch sind
-// sie path-safe und bleiben global gemountet, damit ihr internal-Routing greift.
+// eigene `skip: !isApiPath(req.path)` Predicates — sie überspringen also alles
+// AUSSERHALB von /api/ und greifen auf /api/ selbst. Dadurch sind sie
+// path-safe und bleiben global gemountet, damit ihr internal-Routing greift.
+// isApiPath() vergleicht case-normalisiert, damit der Geltungsbereich der
+// Limiter deckungsgleich mit dem der (case-insensitiv matchenden) Router ist —
+// byte-exakt liess sich der Lockout via `/API/...` komplett umgehen.
 const ratelimits = ratelimitsFactory.create({ logger });
 app.use('/api/', ratelimits.globalLimiter);
 app.use(ratelimits.authFailureLimiter);

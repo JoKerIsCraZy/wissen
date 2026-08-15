@@ -4,6 +4,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
+const { isApiPath, isEventsPath } = require('./shared/apiPath');
+
 // =============================================================
 // Paths
 // =============================================================
@@ -177,7 +179,12 @@ function parseTrustProxy(raw, logger) {
 function requireAuth({ token, logger }) {
   const tokensMatch = makeTokensMatch(token);
   return function authMiddleware(req, res, next) {
-    if (!req.path.startsWith('/api/')) return next();
+    // isApiPath() vergleicht case-normalisiert. Ein byte-exaktes
+    // `req.path.startsWith('/api/')` war hier ein vollständiger Auth-Bypass:
+    // Express-Router matchen case-insensitiv, `GET /API/noten` lief also am
+    // Gate vorbei (kein '/api/'-Prefix → next()) und traf trotzdem den
+    // Handler. Siehe src/shared/apiPath.js für die ausführliche Begründung.
+    if (!isApiPath(req.path)) return next();
 
     // Token aus Header oder (NUR für SSE) Query-String.
     // Query-String-Auth ist auf /api/events beschränkt, weil EventSource
@@ -188,7 +195,7 @@ function requireAuth({ token, logger }) {
     const auth = req.get('Authorization');
     if (auth && /^Bearer\s+/i.test(auth)) {
       provided = auth.replace(/^Bearer\s+/i, '').trim();
-    } else if (req.path === '/api/events' && typeof req.query.token === 'string') {
+    } else if (isEventsPath(req.path) && typeof req.query.token === 'string') {
       provided = req.query.token;
     }
 
