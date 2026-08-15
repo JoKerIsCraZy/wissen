@@ -11,7 +11,7 @@
 // against a mock fetch.
 // =============================================================
 
-import { getToken } from '$lib/auth';
+import { clearToken, getToken } from '$lib/auth';
 import type { ApiErrorBody } from './types';
 
 const BASE = '/api';
@@ -94,6 +94,14 @@ export async function api<T = unknown>(path: string, init: ApiInit = {}): Promis
 	const res = await fetch(url, { ...rest, headers, body: payload, signal });
 
 	if (!res.ok) {
+		// Ein 401 heisst: der gespeicherte Token wird vom Server nicht (mehr)
+		// akzeptiert — etwa weil der Operator data/.api-token rotiert hat.
+		// Ihn liegen zu lassen bringt nichts und hält den Layout-Guard
+		// (`hasToken()`) in dem Glauben, die Sitzung sei gültig, sodass der
+		// Nutzer in einer Schleife aus fehlschlagenden Requests landet statt
+		// auf dem Login-Screen.
+		if (res.status === 401) clearToken();
+
 		let parsed: ApiErrorBody | string | null = null;
 		const ct = res.headers.get('content-type') ?? '';
 		try {

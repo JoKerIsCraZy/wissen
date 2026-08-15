@@ -4,6 +4,7 @@
   import { base } from '$app/paths';
   import { peek } from '$lib/stores/peek.svelte';
   import { getRouteId, type RouteId } from '$lib/stores/route.svelte';
+  import { logout } from '$lib/auth';
 
   interface NavItem {
     id: RouteId;
@@ -30,9 +31,7 @@
   }
 
   function onLogout(): void {
-    // Real logout is wired by the auth agent (B3); keep the visual handler here
-    // so the Rail compiles standalone.
-    void goto(`${base}/login`);
+    void logout(base, goto);
   }
 </script>
 

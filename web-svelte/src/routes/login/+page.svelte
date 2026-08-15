@@ -1,5 +1,13 @@
 <script lang="ts">
-	import { setToken } from '$lib/auth';
+	import { clearToken, setToken } from '$lib/auth';
+
+	// Wer den Login-Screen sieht, ist per Definition abgemeldet. Ein hier noch
+	// vorhandener Token wäre eine gültige Sitzung, die nur nicht angezeigt wird
+	// — genau der Zustand, der "Abmelden" wirkungslos gemacht hat. Deshalb wird
+	// beim Betreten der Seite bedingungslos aufgeräumt, unabhängig davon, über
+	// welchen Weg der Nutzer hergekommen ist (Logout-Button, Direktaufruf,
+	// Redirect vom Layout-Guard).
+	clearToken();
 
 	let token = $state('');
 	let error = $state<string | null>(null);

@@ -4,6 +4,7 @@
   import { base } from '$app/paths';
   import { peek } from '$lib/stores/peek.svelte';
   import { getRouteId, type RouteId } from '$lib/stores/route.svelte';
+  import { logout } from '$lib/auth';
 
   interface TabItem {
     id: RouteId | 'more';
@@ -80,7 +81,7 @@
 
   function onLogout(): void {
     sheetOpen = false;
-    void goto(`${base}/login`);
+    void logout(base, goto);
   }
 
   function onLogsToggle(): void {
