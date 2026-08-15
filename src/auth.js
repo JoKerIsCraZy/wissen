@@ -121,15 +121,27 @@ function parseBoolEnv(v, def = false) {
 //   'uniquelocal' → 10/8, 172.16/12, 192.168/16, fc00::/7
 //   CIDR list   → comma-separated CIDR ranges (e.g. '10.0.0.0/8,127.0.0.1/8')
 //   IP/CIDR     → single IPv4/IPv6 with optional /prefix
-// Default ist 1 (single proxy hop) wenn unset/invalid — kompatibel mit dem
-// vorherigen hardcoded Wert.
+//
+// Default ist 'loopback' wenn unset/invalid: es wird NUR einem Proxy auf
+// 127.0.0.1/::1 geglaubt, ein direkt verbundener Client kann `req.ip` also
+// nicht faelschen.
+//
+// WARUM NICHT MEHR 1 (der frühere Default):
+// Mit `trust proxy = 1` übernimmt Express den letzten X-Forwarded-For-Eintrag
+// als `req.ip` — und zwar unabhängig davon, ob überhaupt ein Proxy davor
+// steht. Der Server bindet aber auf 0.0.0.0 und das mitgelieferte
+// docker-compose.yml published 3000:3000 ohne Proxy. Ein direkt erreichbarer
+// Angreifer konnte damit pro Request eine neue Fake-IP setzen und bekam pro
+// Request einen frischen Rate-Limit-Bucket. Damit waren ALLE IP-basierten
+// Schutzmechanismen wirkungslos: der 10/15min-Auth-Lockout, die 50/6h-Sperre,
+// das 300/5min-Global-Limit, der Scrape- und der Push-Limiter. Token-Raten
+// war unbegrenzt möglich, und die Brute-Force-Warnungen im Log nannten
+// ausschliesslich vom Angreifer gewählte Adressen.
 //
 // Sicherheitshinweis: Mit TRUST_PROXY=true (oder einer zu breiten CIDR-
-// Range) ist `req.ip` über X-Forwarded-For spoofbar. Das ermöglicht es
-// einem Angreifer, den IP-basierten Rate-Limiter / Auth-Lockout zu umgehen,
-// indem er pro Request eine neue gefälschte Source-IP setzt. Setze daher
-// die exakte Anzahl Hops (z.B. 1 hinter nginx) oder eine enge CIDR-Liste
-// der eigenen Proxies.
+// Range) ist `req.ip` über X-Forwarded-For spoofbar. Setze daher die exakte
+// Anzahl Hops (z.B. 1 hinter nginx) oder eine enge CIDR-Liste der eigenen
+// Proxies — niemals `true` auf einem erreichbaren Listener.
 const TRUST_PROXY_TOKENS = new Set(['loopback', 'linklocal', 'uniquelocal']);
 // IPv4 mit optionalem Prefix ODER IPv6 mit optionalem Prefix
 const TRUST_PROXY_CIDR_RE = /^(\d+\.\d+\.\d+\.\d+(\/\d+)?|[0-9a-fA-F:]+(\/\d+)?)$/;
@@ -140,8 +152,13 @@ function _isValidTrustProxyPart(part) {
   return TRUST_PROXY_CIDR_RE.test(part);
 }
 
+// Sicherer Fallback für "nicht gesetzt" und für jeden nicht interpretierbaren
+// Wert. Nur ein Proxy auf dem Loopback-Interface wird als vertrauenswürdig
+// behandelt; ein direkt verbundener Client kann req.ip damit nicht setzen.
+const TRUST_PROXY_DEFAULT = 'loopback';
+
 function parseTrustProxy(raw, logger) {
-  if (raw == null || raw === '') return 1;
+  if (raw == null || raw === '') return TRUST_PROXY_DEFAULT;
   const s = String(raw).trim();
   if (s === 'true') return true;
   if (s === 'false') return false;
@@ -149,7 +166,7 @@ function parseTrustProxy(raw, logger) {
   // Integer (hop count)
   if (/^\d+$/.test(s)) {
     const n = parseInt(s, 10);
-    return Number.isFinite(n) && n >= 0 ? n : 1;
+    return Number.isFinite(n) && n >= 0 ? n : TRUST_PROXY_DEFAULT;
   }
   // Comma-separated CIDR list
   if (s.includes(',')) {
@@ -157,17 +174,17 @@ function parseTrustProxy(raw, logger) {
     const valid = parts.filter(_isValidTrustProxyPart);
     const invalid = parts.filter(p => !_isValidTrustProxyPart(p));
     if (invalid.length && logger && typeof logger.log === 'function') {
-      logger.log(`⚠️  TRUST_PROXY: ungültige Einträge ignoriert (${invalid.join(', ')}) — fallback 1 Hop falls Liste leer.`, 'warn');
+      logger.log(`⚠️  TRUST_PROXY: ungültige Einträge ignoriert (${invalid.join(', ')}) — fallback '${TRUST_PROXY_DEFAULT}' falls Liste leer.`, 'warn');
     }
     if (valid.length) return valid;
-    return 1;
+    return TRUST_PROXY_DEFAULT;
   }
   // Single CIDR / IP / known token
   if (_isValidTrustProxyPart(s)) return s;
   if (logger && typeof logger.log === 'function') {
-    logger.log(`⚠️  TRUST_PROXY="${s}" ist kein valider Token/CIDR — falle auf 1 Hop zurück. Erlaubt: true/false, integer, loopback/linklocal/uniquelocal, IPv4/IPv6 mit optionalem /prefix, oder kommaseparierte CIDR-Liste.`, 'warn');
+    logger.log(`⚠️  TRUST_PROXY="${s}" ist kein valider Token/CIDR — falle auf '${TRUST_PROXY_DEFAULT}' zurück. Erlaubt: true/false, integer, loopback/linklocal/uniquelocal, IPv4/IPv6 mit optionalem /prefix, oder kommaseparierte CIDR-Liste.`, 'warn');
   }
-  return 1;
+  return TRUST_PROXY_DEFAULT;
 }
 
 // =============================================================
@@ -212,5 +229,6 @@ module.exports = {
   requireAuth,
   parseBoolEnv,
   parseTrustProxy,
+  TRUST_PROXY_DEFAULT,
   banner
 };
