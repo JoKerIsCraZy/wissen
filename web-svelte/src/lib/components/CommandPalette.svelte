@@ -2,6 +2,7 @@
   import { goto } from '$app/navigation';
   import { base } from '$app/paths';
   import { peek } from '$lib/stores/peek.svelte';
+  import { logout } from '$lib/auth';
 
   interface PaletteProps {
     open?: boolean;
@@ -30,7 +31,7 @@
     { id: 'a-scrape',      label: 'Abfrage jetzt starten', icon: '►', hint: 'r', action: () => { window.dispatchEvent(new CustomEvent('wissen:scrape')); } },
     { id: 'a-logs',        label: 'Logs umschalten',     icon: '☰', hint: '⌘L', action: () => { peek.toggle(); } },
     { id: 'a-help',        label: 'Tastatur-Hilfe',      icon: '?', hint: '?', action: () => { if (onHelpOpen) onHelpOpen(); } },
-    { id: 'a-logout',      label: 'Abmelden',            icon: '⏻',           action: () => { void goto(`${base}/login`); } },
+    { id: 'a-logout',      label: 'Abmelden',            icon: '⏻',           action: () => { void logout(base, goto); } },
   ];
 
   let query = $state('');
