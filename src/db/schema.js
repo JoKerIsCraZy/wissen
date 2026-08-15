@@ -176,9 +176,35 @@ function ensureColumn(db, table, column, ddl) {
   return true;
 }
 
+// Restriktive Rechte auf die DB-Datei und ihre WAL/SHM-Sidecars.
+//
+// SQLite legt neue Dateien mit 0666 & ~umask an — bei der ueblichen umask 022
+// also 0644, world-readable. In data/ liegen daneben .master-key, .api-token,
+// vapid.json, settings.json und storage.json, die alle explizit 0600
+// bekommen; ausgerechnet wissen.db war die Ausnahme, obwohl dort der
+// vollstaendige Noten-/Absenzen-/Stundenplan-Bestand UND die Web-Push-
+// Krypto-Paare (push_subscriptions.p256dh / .auth) drinstehen.
+//
+// Wird bei JEDEM open() angewandt, nicht nur beim Anlegen: so werden auch
+// bestehende Installationen beim naechsten Start nachgezogen (Migration).
+//
+// Best-effort: auf Windows kennt chmod keine POSIX-Modes, und die Sidecars
+// existieren je nach Journal-Mode-Zeitpunkt noch nicht. Ein Fehlschlag darf
+// den Start nicht verhindern — dieselbe Konvention wie in src/auth.js:57-58
+// und src/secretCrypto.js.
+function _hardenDbPerms(dbPath) {
+  for (const p of [dbPath, dbPath + '-wal', dbPath + '-shm']) {
+    try {
+      fs.chmodSync(p, 0o600);
+    } catch (_) { /* nicht vorhanden oder Windows — ignorieren */ }
+  }
+}
+
 function open(filename) {
   const dataDir = path.join(process.cwd(), 'data');
-  fs.mkdirSync(dataDir, { recursive: true });
+  // mode greift nur beim Neuanlegen; bestehende Verzeichnisse bleiben, wie sie
+  // sind (ein bind-gemountetes ./data gehoert dem Host).
+  fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   const dbPath = filename || path.join(dataDir, 'wissen.db');
 
   // Auto-Migration: pre-rebrand installs hatten data/tocco.db. Falls nur die alte
@@ -201,6 +227,8 @@ function open(filename) {
   const run = (sql) => d.exec(sql);
   run('PRAGMA journal_mode = WAL');
   run('PRAGMA foreign_keys = ON');
+  // Erst NACH dem WAL-Pragma haerten: davor existieren -wal/-shm noch nicht.
+  _hardenDbPerms(dbPath);
   run(SCHEMA);
 
   // Migrations für bestehende DBs (CREATE TABLE IF NOT EXISTS triggert kein ALTER).
