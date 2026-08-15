@@ -2,6 +2,7 @@
 
 const rateLimit = require('express-rate-limit');
 const { apiError } = require('./shared/apiError');
+const { isApiPath, isEventsPath } = require('./shared/apiPath');
 
 // Factory: erstellt alle 5 rate-limit Middlewares mit gemeinsamer logger-Abhängigkeit.
 // globalLimiter, scrapeLimiter und pushLimiter sind static (kein logger nötig);
@@ -20,7 +21,14 @@ function create({ logger }) {
     // NICHT '/api/events'. Daher hier auf den post-mount-Pfad prüfen.
     // Doppelt absichern via originalUrl für den Fall dass jemand den
     // Limiter in Zukunft global mountet.
-    skip: (req) => req.path === '/events' || req.originalUrl === '/api/events',
+    // Auch hier case-normalisiert: `app.use('/api/', ...)` matcht den Mount
+    // case-insensitiv, ein `/API/events` würde sonst nicht als SSE erkannt und
+    // die long-lived Verbindung gegen das 300/5min-Budget zählen.
+    skip: (req) => {
+      const p = String(req.path || '').toLowerCase();
+      const orig = String(req.originalUrl || '').toLowerCase().split('?')[0];
+      return p === '/events' || orig === '/api/events';
+    },
     handler: (req, res) => apiError(res, 429, 'Zu viele Anfragen, bitte später erneut versuchen')
   });
 
@@ -59,13 +67,19 @@ function create({ logger }) {
   // `/api/events` (SSE) wird übersprungen: bei 401 reconnectet der Browser
   // per EventSource sofort wieder, was legitime User mit abgelaufenem Token
   // in Sekunden ausperren würde.
+  // Die skip-Prädikate vergleichen case-normalisiert (isApiPath/isEventsPath).
+  // Byte-exakt war hier eine Umgehung des kompletten Lockouts: Express matcht
+  // Routen case-insensitiv, ein Angreifer konnte Tokens also gegen
+  // `/API/settings` raten — der Request traf einen echten Handler, wurde aber
+  // von `startsWith('/api/')` nicht als API-Request erkannt und deshalb nie
+  // gezählt. Weder die 10/15min- noch die 50/6h-Sperre griff je.
   const authFailureLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     limit: 10,
     skipSuccessfulRequests: true,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
-    skip: (req) => !req.path.startsWith('/api/') || req.path === '/api/events',
+    skip: (req) => !isApiPath(req.path) || isEventsPath(req.path),
     handler: (req, res) => {
       logger.log(`🚫 Auth-Brute-Force blockiert (15min): IP ${req.ip} → ${req.method} ${req.path}`, 'warn');
       return apiError(res, 429, 'Zu viele fehlgeschlagene Auth-Versuche - IP für 15 Minuten gesperrt');
@@ -78,7 +92,7 @@ function create({ logger }) {
     skipSuccessfulRequests: true,
     standardHeaders: false,             // nur die kurze Schicht setzt RateLimit-Headers
     legacyHeaders: false,
-    skip: (req) => !req.path.startsWith('/api/') || req.path === '/api/events',
+    skip: (req) => !isApiPath(req.path) || isEventsPath(req.path),
     handler: (req, res) => {
       logger.log(`⛔ Auth-Lockout (6h): IP ${req.ip} hat 50+ Auth-Fehler in 6h ausgelöst`, 'error');
       return apiError(res, 429, 'IP wegen wiederholter Auth-Fehler langzeitgesperrt (6h)');
@@ -101,7 +115,7 @@ function create({ logger }) {
     skipSuccessfulRequests: true,
     standardHeaders: false,
     legacyHeaders: false,
-    skip: (req) => req.path !== '/api/events',
+    skip: (req) => !isEventsPath(req.path),
     handler: (req, res) => {
       logger.log(`🚫 SSE-Auth-Brute-Force: IP ${req.ip} hat 60+ Fehler an /api/events in 15min`, 'warn');
       return apiError(res, 429, 'Zu viele fehlgeschlagene SSE-Auth-Versuche');
