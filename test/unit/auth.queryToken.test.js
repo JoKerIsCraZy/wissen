@@ -1,7 +1,11 @@
 'use strict';
 
-// Verifies that ?token= query auth is restricted to /api/events only.
-// All other routes must require the Authorization: Bearer header.
+// Verifies that the API token is accepted ONLY via the Authorization header —
+// auf keiner Route mehr als `?token=` im Query-String.
+//
+// Frueher war /api/events die Ausnahme, weil EventSource keine Custom-Header
+// setzen kann. Der Token landete dadurch in jedem Reverse-Proxy-Access-Log.
+// Ersetzt durch kurzlebige Einmal-Tickets (siehe test/unit/sseTicket.test.js).
 
 const { test } = require('node:test');
 const assert = require('node:assert');
@@ -66,12 +70,15 @@ test('?token= query is REJECTED on /api/status (non-events)', async () => {
   }
 });
 
-test('?token= query IS accepted on /api/events', async () => {
+test('?token= query is REJECTED on /api/events too (no exception left)', async () => {
   const app = makeApp();
   const { server, port } = await listen(app);
   try {
     const res = await get(port, `/api/events?token=${TOKEN}`);
-    assert.strictEqual(res.status, 200, '?token= must authenticate /api/events');
+    assert.strictEqual(
+      res.status, 401,
+      'der Token darf auf KEINER Route mehr aus der URL akzeptiert werden'
+    );
   } finally {
     server.close();
   }

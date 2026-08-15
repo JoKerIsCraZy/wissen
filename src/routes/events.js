@@ -2,6 +2,8 @@
 
 const express = require('express');
 
+const sseTicket = require('../sseTicket');
+
 // Modul-scope shared ping-interval. Statt pro Client ein setInterval zu
 // starten (20 Timers), läuft ein einziger Interval-Loop und schreibt ': ping'
 // in jeden Client. Wird beim ersten Mount gestartet und bleibt für die Lebzeit
@@ -30,6 +32,21 @@ module.exports = function eventsRoutes(deps) {
 
   // Shared ping-Interval einmalig beim Router-Mount initialisieren.
   startSharedPingInterval(sse.sseClients);
+
+  // ---------- SSE-Ticket ----------
+  // Gibt ein kurzlebiges Einmal-Ticket fuer /api/events aus.
+  //
+  // Diese Route liegt NICHT unter dem SSE-Sonderfall des Auth-Gates (der
+  // greift nur auf exakt /api/events), sie verlangt also den regulaeren
+  // Authorization-Header. Der API-Token bleibt damit im Header und taucht in
+  // keinem Access-Log auf; nur das Ticket wandert anschliessend in die URL.
+  //
+  // Bewusst POST: ein GET waere vom Browser prefetch-/cachebar und wuerde
+  // Tickets verbrauchen, die nie fuer einen Connect genutzt werden.
+  router.post('/api/events/ticket', (req, res) => {
+    const { ticket, expiresInMs } = sseTicket.issue();
+    res.json({ ticket, expiresInMs });
+  });
 
   // ---------- SSE Events ----------
   router.get('/api/events', (req, res) => {
