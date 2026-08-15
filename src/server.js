@@ -167,10 +167,12 @@ const _healthTokensMatch = auth.makeTokensMatch(API_TOKEN);
 //     unnötig Bytes erzeugen.
 app.set('etag', false);
 
-// Trust-Proxy aus env-var, default 1 Hop. Wichtig damit rate-limit die echte
-// Client-IP sieht (sonst zählen alle User hinter dem Proxy auf einen Counter).
-// Bei Multi-Hop-Setups (z.B. CF → nginx → app) auf 2 setzen. Akzeptiert auch
-// 'loopback', 'true'/'false' oder eine kommaseparierte CIDR-Liste.
+// Trust-Proxy aus env-var, default 'loopback' (nur einem Proxy auf 127.0.0.1
+// wird geglaubt). Wichtig damit rate-limit die echte Client-IP sieht (sonst
+// zählen alle User hinter dem Proxy auf einen Counter). Hinter einem Reverse-
+// Proxy auf demselben Host passt der Default; bei einem Proxy auf einer
+// anderen Maschine TRUST_PROXY=1 setzen, bei Multi-Hop (z.B. CF → nginx → app)
+// entsprechend 2. Akzeptiert auch 'true'/'false' oder eine CIDR-Liste.
 const _trustProxy = auth.parseTrustProxy(process.env.TRUST_PROXY, logger);
 // Sicherheits-Warnungen: TRUST_PROXY=true erlaubt IP-Spoofing über
 // X-Forwarded-For (Rate-Limit-Counters per gefälschter IP umgehbar).
@@ -182,6 +184,37 @@ if (typeof _trustProxy === 'number' && _trustProxy > 10) {
   logger.log(`⚠️  TRUST_PROXY=${_trustProxy} ist ungewöhnlich hoch (>10 Hops). Konfiguration prüfen.`, 'warn');
 }
 app.set('trust proxy', _trustProxy);
+
+// ---------- Migrationshilfe für den TRUST_PROXY-Default ----------
+// Bis v4 war der Default 1 Hop, d.h. X-Forwarded-For wurde blind übernommen.
+// Der Default ist jetzt 'loopback'. Für Setups mit Reverse-Proxy auf einem
+// ANDEREN Host ändert sich dadurch die als Client gesehene IP: alle Requests
+// zählen dann auf den Bucket des Proxys statt auf den des echten Clients.
+//
+// Das ist sicher (ein direkter Client kann req.ip nicht mehr fälschen), aber
+// der Operator soll es merken statt es stillschweigend zu erben. Diese
+// Middleware feuert genau dann EINMAL, wenn ein Request einen XFF-Header
+// mitbringt, den wir nicht honorieren — also exakt im betroffenen Fall.
+let _xffWarned = false;
+if (process.env.TRUST_PROXY == null || process.env.TRUST_PROXY === '') {
+  app.use((req, _res, next) => {
+    if (!_xffWarned && req.get('X-Forwarded-For')) {
+      // req.ip === Socket-Peer bedeutet: der Header wurde NICHT angewandt.
+      const peer = req.socket && req.socket.remoteAddress;
+      if (peer && req.ip === peer) {
+        _xffWarned = true;
+        logger.log(
+          `⚠️  X-Forwarded-For empfangen (von ${peer}), aber TRUST_PROXY ist nicht gesetzt — ` +
+          `der Header wird ignoriert und Rate-Limits zählen auf die Proxy-IP. ` +
+          `Steht ein Reverse-Proxy davor, setze TRUST_PROXY=1 (bzw. die Anzahl Hops ` +
+          `oder eine CIDR-Liste deiner Proxies). Ohne Proxy ist der Default korrekt so.`,
+          'warn'
+        );
+      }
+    }
+    next();
+  });
+}
 
 // ---------- Security Headers ----------
 app.use(helmet({
