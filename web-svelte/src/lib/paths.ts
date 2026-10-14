@@ -6,6 +6,9 @@
  * deshalb über das typisierte `resolve('/noten')`. Dieser Wert ist nur für URLs
  * gedacht, die SvelteKit nicht kennt — z.B. /assets/* und /floorplans/*, die
  * Express aus web/ ausliefert. resolve('/') liefert base + '/'.
+ *
+ * Setzt Path-Routing voraus (Default). Mit router.type 'hash' gäbe resolve('/')
+ * '#/' zurück und base wäre '#'.
  */
 import { resolve } from '$app/paths';
 
