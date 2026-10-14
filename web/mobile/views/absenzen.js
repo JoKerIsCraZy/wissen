@@ -8,7 +8,7 @@
    ist% rechts statt Note; „Neu"-Pill + observeFresh wie bei Noten.
 
    Depends on globals from mobile.js shell:
-     - $, titleEl, main, apiFetch, skeletonShell, errorShell, observeFresh
+     - $, titleEl, main, loadView, errorShell, observeFresh
    And from views/absenz-sheet.js:
      - window.openAbsenzModulSheet
    ============================================================ */
@@ -36,14 +36,9 @@ function fmtPct(n) {
 
 async function renderAbsenzen() {
   titleEl.textContent = 'Absenzen';
-  skeletonShell('absenzen');
-  try {
-    const data = await apiFetch('/api/absenzen');
-    drawAbsenzen(data);
-  } catch (e) {
-    if (e && e.silent) return;
+  await loadView('absenzen', [{ path: '/api/absenzen' }], drawAbsenzen, (e) => {
     errorShell((e && e.message) || 'Fehler beim Laden der Absenzen');
-  }
+  });
 }
 
 function drawAbsenzen(data) {

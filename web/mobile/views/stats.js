@@ -9,7 +9,7 @@
    mit web/mobile/css/stats.css (Agent B) gepairt.
 
    Depends on globals from mobile.js shell:
-     - $, titleEl, main, apiFetch, loadingShell, skeletonShell, errorShell
+     - $, titleEl, main, loadView, loadingShell, errorShell
      - gradeClass, modulNummerOf
    ============================================================ */
 'use strict';
@@ -46,18 +46,12 @@ function ensureQvDefaults() {
 
 async function renderStats() {
   titleEl.textContent = 'Statistik';
-  skeletonShell('stats'); // unbekannte View → loadingShell-Fallback
-  try {
-    const [statsData, notenData, verlaufData] = await Promise.all([
-      apiFetch('/api/stats'),
-      apiFetch('/api/noten'),
-      apiFetch('/api/noten/verlauf').catch(() => null),
-    ]);
-    drawStats(statsData, notenData, verlaufData);
-  } catch (e) {
-    if (e && e.silent) return;
-    drawStatsEmpty(e && e.message);
-  }
+  await loadView(
+    'stats',
+    [{ path: '/api/stats' }, { path: '/api/noten' }, { path: '/api/noten/verlauf', optional: true }],
+    drawStats,
+    (e) => { drawStatsEmpty(e && e.message); }
+  );
 }
 
 /* Wenn beide Endpoints leer ODER Fehler werfen: Empty-State + Retry-Button.

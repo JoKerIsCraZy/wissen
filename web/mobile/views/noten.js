@@ -4,7 +4,7 @@
    into the Modul-Detail view.
 
    Depends on globals from mobile.js shell:
-     - $, titleEl, main, apiFetch, loadingShell, errorShell, observeFresh
+     - $, titleEl, main, loadView, loadingShell, errorShell, observeFresh
      - gradeClass, fmtGrade, modulNummerOf, buildTitle
    ============================================================ */
 'use strict';
@@ -20,14 +20,9 @@ function isBkRow(r) {
 
 async function renderNoten() {
   titleEl.textContent = 'Noten';
-  skeletonShell('noten');
-  try {
-    const data = await apiFetch('/api/noten');
-    drawNoten(data);
-  } catch (e) {
-    if (e.silent) return;
+  await loadView('noten', [{ path: '/api/noten' }], drawNoten, (e) => {
     errorShell(e.message || 'Fehler beim Laden der Noten');
-  }
+  });
 }
 function drawNoten(data) {
   main.replaceChildren();

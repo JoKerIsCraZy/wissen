@@ -4,20 +4,15 @@
    inline detail with floor-plan + chips on click.
 
    Depends on globals from mobile.js shell:
-     - titleEl, main, apiFetch, loadingShell, errorShell, observeFresh, parseHash
+     - titleEl, main, loadView, loadingShell, errorShell, observeFresh, parseHash
    ============================================================ */
 'use strict';
 
 async function renderStundenplan() {
   titleEl.textContent = 'Stundenplan';
-  skeletonShell('stundenplan');
-  try {
-    const data = await apiFetch('/api/stundenplan');
-    drawStundenplan(data);
-  } catch (e) {
-    if (e.silent) return;
+  await loadView('stundenplan', [{ path: '/api/stundenplan' }], drawStundenplan, (e) => {
     errorShell(e.message || 'Fehler beim Laden des Stundenplans');
-  }
+  });
 }
 function drawStundenplan(data) {
   main.replaceChildren();
