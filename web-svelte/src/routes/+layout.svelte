@@ -215,7 +215,8 @@
    * the bottom) into another route would land mid-page. Skip on hash-only
    * navigations so anchor jumps still work. */
   afterNavigate(({ from, to }) => {
-    if (from && to && from.url.pathname === to.url.pathname) return;
+    // Beim ersten Laden liefert SvelteKit `from` mit url === null (trotz Typ).
+    if (from?.url && to?.url && from.url.pathname === to.url.pathname) return;
     const el = document.querySelector('.main');
     if (el instanceof HTMLElement) el.scrollTop = 0;
   });
