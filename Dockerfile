@@ -108,7 +108,7 @@ WORKDIR /app/web-svelte
 COPY web-svelte/package.json web-svelte/package-lock.json ./
 RUN npm ci --include=dev --ignore-scripts && npm cache clean --force
 COPY web-svelte/. ./
-# adapter-static writes to ../dist (configured in svelte.config.js), so
+# adapter-static writes to ../dist (configured in vite.config.ts), so
 # the build artefact lands at /app/dist after this RUN.
 RUN npm run build
 

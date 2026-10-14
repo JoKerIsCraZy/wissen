@@ -17,13 +17,13 @@
     updateSettings,
     clearStundenplan,
     resetDb
-  } from '$lib/api/endpoints';
-  import { pushToast } from '$lib/stores/toast.svelte';
+  } from '#lib/api/endpoints.js';
+  import { pushToast } from '#lib/stores/toast.svelte.js';
   import type {
     SettingsView,
     SettingsPatch,
     ScheduleMode
-  } from '$lib/api/types';
+  } from '#lib/api/types.js';
 
   let current = $state<SettingsView | null>(null);
   let patch = $state<SettingsPatch>({});

@@ -5,7 +5,7 @@
  * Datei `absenz-status.js`, damit sie unabhängig vom Svelte-Compiler
  * test- und im Mobile spiegelbar ist; hier nur re-exportiert.
  */
-import type { AbsenzModulRow } from '$lib/api/types';
+import type { AbsenzModulRow } from '#lib/api/types.js';
 import {
   statusLabel,
   attendanceClass,

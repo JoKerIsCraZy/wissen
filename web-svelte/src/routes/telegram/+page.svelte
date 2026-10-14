@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { getSettings, updateSettings } from '$lib/api/endpoints';
-	import type { SettingsPatch, SettingsView } from '$lib/api/types';
-	import { pushToast } from '$lib/stores/toast.svelte';
-	import { isApiHttpError } from '$lib/api/client';
+	import { getSettings, updateSettings } from '#lib/api/endpoints.js';
+	import type { SettingsPatch, SettingsView } from '#lib/api/types.js';
+	import { pushToast } from '#lib/stores/toast.svelte.js';
+	import { isApiHttpError } from '#lib/api/client.js';
 
 	type TgState =
 		| 'loading'

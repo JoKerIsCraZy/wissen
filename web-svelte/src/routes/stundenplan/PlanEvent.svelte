@@ -10,8 +10,8 @@
   import { slide } from 'svelte/transition';
   import { expoOut } from 'svelte/easing';
 
-  import FloorPlan from '$lib/floorplans/FloorPlan.svelte';
-  import type { StundenplanRow } from '$lib/api/types';
+  import FloorPlan from '#lib/floorplans/FloorPlan.svelte';
+  import type { StundenplanRow } from '#lib/api/types.js';
 
   type EventState = {
     row: StundenplanRow;

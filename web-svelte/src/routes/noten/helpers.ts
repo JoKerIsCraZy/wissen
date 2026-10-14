@@ -3,7 +3,7 @@
  * NotenFilters / NotenTable so all three components agree on the
  * exact same formatting + status logic.
  */
-import type { NotenRow } from '$lib/api/types';
+import type { NotenRow } from '#lib/api/types.js';
 
 export type SortKey = 'number' | 'name' | 'semester' | 'note' | 'status' | 'updated';
 

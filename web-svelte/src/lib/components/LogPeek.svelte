@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte';
-  import { peek } from '$lib/stores/peek.svelte';
-  import { live } from '$lib/stores/live.svelte';
+  import { peek } from '#lib/stores/peek.svelte.js';
+  import { live } from '#lib/stores/live.svelte.js';
 
   function formatTs(iso: string): string {
     try {

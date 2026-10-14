@@ -6,8 +6,8 @@
    * "Nächste Lektion" and "Danach" slots — the live "Aktuell" slot has
    * its own NowCard with the active-bar accent.
    */
-  import FloorPlan from '$lib/floorplans/FloorPlan.svelte';
-  import type { StundenplanRow } from '$lib/api/types';
+  import FloorPlan from '#lib/floorplans/FloorPlan.svelte';
+  import type { StundenplanRow } from '#lib/api/types.js';
 
   interface Props {
     lesson: StundenplanRow | null;

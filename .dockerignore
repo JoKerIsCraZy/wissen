@@ -62,7 +62,7 @@ build/
 
 # SvelteKit frontend transient state — installed/generated inside the
 # webbuild stage, never useful from the host. Source (web-svelte/src,
-# package.json, svelte.config.js, vite.config.ts) ships into the build
+# package.json, vite.config.ts) ships into the build
 # context as expected.
 web-svelte/node_modules/
 web-svelte/.svelte-kit/

@@ -9,7 +9,7 @@
   import { slide } from 'svelte/transition';
   import { expoOut, cubicOut } from 'svelte/easing';
 
-  import type { AbsenzLektionRow } from '$lib/api/types';
+  import type { AbsenzLektionRow } from '#lib/api/types.js';
   import {
     statusLabel,
     attendanceClass,

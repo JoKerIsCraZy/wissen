@@ -1,8 +1,8 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import { base } from '$app/paths';
-  import { peek } from '$lib/stores/peek.svelte';
-  import { logout } from '$lib/auth';
+  import { resolve } from '$app/paths';
+  import { peek } from '#lib/stores/peek.svelte.js';
+  import { logout } from '#lib/auth.js';
 
   interface PaletteProps {
     open?: boolean;
@@ -20,18 +20,18 @@
   }
 
   const items: PaletteItem[] = [
-    { id: 'r-now',         label: 'Jetzt öffnen',         icon: '⊙', hint: 'g j', action: () => { void goto(`${base}/`); } },
-    { id: 'r-stundenplan', label: 'Stundenplan öffnen',  icon: '☷', hint: 'g s', action: () => { void goto(`${base}/stundenplan`); } },
-    { id: 'r-noten',       label: 'Noten öffnen',        icon: '◎', hint: 'g n', action: () => { void goto(`${base}/noten`); } },
-    { id: 'r-absenzen',    label: 'Absenzen öffnen',     icon: '⦸', hint: 'g b', action: () => { void goto(`${base}/absenzen`); } },
-    { id: 'r-stats',       label: 'Auswertung öffnen',   icon: '⌘', hint: 'g a', action: () => { void goto(`${base}/stats`); } },
-    { id: 'r-settings',    label: 'Einstellungen öffnen', icon: '⚙', hint: 'g e', action: () => { void goto(`${base}/settings`); } },
-    { id: 'r-push',        label: 'Push öffnen',         icon: '⤴', hint: 'g p', action: () => { void goto(`${base}/push`); } },
-    { id: 'r-telegram',    label: 'Telegram öffnen',     icon: '⏚', hint: 'g t', action: () => { void goto(`${base}/telegram`); } },
+    { id: 'r-now',         label: 'Jetzt öffnen',         icon: '⊙', hint: 'g j', action: () => { void goto(resolve('/')); } },
+    { id: 'r-stundenplan', label: 'Stundenplan öffnen',  icon: '☷', hint: 'g s', action: () => { void goto(resolve('/stundenplan')); } },
+    { id: 'r-noten',       label: 'Noten öffnen',        icon: '◎', hint: 'g n', action: () => { void goto(resolve('/noten')); } },
+    { id: 'r-absenzen',    label: 'Absenzen öffnen',     icon: '⦸', hint: 'g b', action: () => { void goto(resolve('/absenzen')); } },
+    { id: 'r-stats',       label: 'Auswertung öffnen',   icon: '⌘', hint: 'g a', action: () => { void goto(resolve('/stats')); } },
+    { id: 'r-settings',    label: 'Einstellungen öffnen', icon: '⚙', hint: 'g e', action: () => { void goto(resolve('/settings')); } },
+    { id: 'r-push',        label: 'Push öffnen',         icon: '⤴', hint: 'g p', action: () => { void goto(resolve('/push')); } },
+    { id: 'r-telegram',    label: 'Telegram öffnen',     icon: '⏚', hint: 'g t', action: () => { void goto(resolve('/telegram')); } },
     { id: 'a-scrape',      label: 'Abfrage jetzt starten', icon: '►', hint: 'r', action: () => { window.dispatchEvent(new CustomEvent('wissen:scrape')); } },
     { id: 'a-logs',        label: 'Logs umschalten',     icon: '☰', hint: '⌘L', action: () => { peek.toggle(); } },
     { id: 'a-help',        label: 'Tastatur-Hilfe',      icon: '?', hint: '?', action: () => { if (onHelpOpen) onHelpOpen(); } },
-    { id: 'a-logout',      label: 'Abmelden',            icon: '⏻',           action: () => { void logout(base, goto); } },
+    { id: 'a-logout',      label: 'Abmelden',            icon: '⏻',           action: () => { void logout(goto); } },
   ];
 
   let query = $state('');

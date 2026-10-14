@@ -24,7 +24,7 @@
   try { localStorage.setItem('wissen.authToken', 'demo-token'); } catch (_) {}
 
   // 2) Service-Worker im Demo nicht registrieren (defensiv — der Demo-Build
-  //    deaktiviert die Auto-Registration bereits via svelte.config.js).
+  //    deaktiviert die Auto-Registration bereits via vite.config.ts).
   if ('serviceWorker' in navigator) {
     try {
       navigator.serviceWorker.register = () =>

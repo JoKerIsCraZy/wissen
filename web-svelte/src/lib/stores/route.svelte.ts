@@ -8,7 +8,7 @@
  * `getRouteId(page.url.pathname)` directly to keep things reactive.
  */
 
-import { base } from '$app/paths';
+import { base } from '#lib/paths.js';
 
 export type RouteId =
   | 'now'

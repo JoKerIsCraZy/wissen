@@ -1,8 +1,3 @@
-/// <reference types="@sveltejs/kit" />
-/// <reference no-default-lib="true"/>
-/// <reference lib="esnext" />
-/// <reference lib="webworker" />
-
 /**
  * WISSen v2 Service Worker.
  *
@@ -11,16 +6,18 @@
  * - /api/*: network-only — never cache (auth/rate-limit must surface).
  * - /floorplans/*: network-first with cache fallback (user edits data.js).
  *
- * SvelteKit injects build/files/version via the $service-worker virtual
- * module. With adapter-static the SW lands at /v2/service-worker.js.
+ * Typen kommen aus src/service-worker/tsconfig.json ($app/tsconfig/service-worker).
+ * `$app/manifest` liefert die Vite-Ausgabe (immutable) und static/ (assets)
+ * als Pfade relativ zum Base-Pfad — hier zu absoluten Pfaden gemacht.
  */
 
-import { build, files, version } from '$service-worker';
-
-const sw = self as unknown as ServiceWorkerGlobalScope;
+import { self as sw } from '$app/service-worker';
+import { version } from '$app/env';
+import { immutable, assets } from '$app/manifest';
+import { base } from '#lib/paths.js';
 
 const CACHE = `tm-v2-${version}`;
-const SHELL: readonly string[] = [...build, ...files];
+const SHELL: readonly string[] = [...immutable, ...assets].map(({ path }) => `${base}/${path}`);
 
 sw.addEventListener('install', (event: ExtendableEvent) => {
   event.waitUntil((async () => {

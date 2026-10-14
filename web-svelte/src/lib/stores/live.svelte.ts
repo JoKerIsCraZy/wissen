@@ -4,7 +4,7 @@
 // Single connection, single source of truth, single subscriber.
 // =============================================================
 
-import type { ApiStatus, LogEntry, StatusKind } from '$lib/api/types';
+import type { ApiStatus, LogEntry, StatusKind } from '#lib/api/types.js';
 
 const MAX_LOGS = 200;
 

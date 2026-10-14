@@ -13,8 +13,8 @@
   import { onMount, onDestroy } from 'svelte';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
-  import { getNoten, getPruefungen, markSeen } from '$lib/api/endpoints';
-  import type { PruefungRow } from '$lib/api/types';
+  import { getNoten, getPruefungen, markSeen } from '#lib/api/endpoints.js';
+  import type { PruefungRow } from '#lib/api/types.js';
 
   import NotenTiles from './NotenTiles.svelte';
   import NotenFilters from './NotenFilters.svelte';
@@ -37,8 +37,7 @@
   // URL-state: filters + sort werden in page.url.searchParams gespiegelt,
   // damit Reload + Sharing den exakten Filter-Stand wiederherstellt.
   // Initialwerte werden einmalig aus der URL gelesen, danach hält ein
-  // $effect die URL via goto(..., replaceState:true, noScroll:true,
-  // keepFocus:true) im Sync.
+  // $effect die URL via goto(..., { replace: true, reset: false }) im Sync.
   // ------------------------------------------------------------------
   const VALID_SORT_KEYS: ReadonlySet<SortKey> = new Set([
     'number', 'name', 'semester', 'note', 'status', 'updated',
@@ -419,8 +418,8 @@
   });
 
   /* URL-state sync: queryNumber + activeSemester + sortBy in die
-   * searchParams spiegeln. replaceState statt push, damit der Back-Button
-   * nicht durch jede Filter-Änderung tickt; noScroll+keepFocus damit das
+   * searchParams spiegeln. replace statt push, damit der Back-Button
+   * nicht durch jede Filter-Änderung tickt; reset: false damit das
    * Input nicht den Fokus verliert während getippt wird. Default-Werte
    * werden als leere Param aus der URL entfernt — sauberer Share-Link. */
   let initialUrlSyncDone = false;
@@ -436,7 +435,7 @@
       initialUrlSyncDone = true;
       return;
     }
-    const params = new URLSearchParams(page.url.searchParams);
+    const params = new URLSearchParams(page.url.search);
     if (q.trim()) params.set('q', q);
     else params.delete('q');
     const semCsv = [...sems].sort().join(',');
@@ -448,7 +447,7 @@
     const current = page.url.searchParams.toString();
     if (next === current) return;
     const url = next ? `${page.url.pathname}?${next}` : page.url.pathname;
-    void goto(url, { replaceState: true, noScroll: true, keepFocus: true });
+    void goto(url, { replace: true, reset: false });
   });
 
   onDestroy(() => {

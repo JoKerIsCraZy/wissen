@@ -5,7 +5,7 @@
    * a plan). This panel is information-dense: label, time, lesson, room
    * chip, optional dozent. One-glance read.
    */
-  import type { StundenplanRow } from '$lib/api/types';
+  import type { StundenplanRow } from '#lib/api/types.js';
 
   interface Props {
     nextEventToday: StundenplanRow | null;

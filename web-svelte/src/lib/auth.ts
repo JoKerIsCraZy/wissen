@@ -1,4 +1,5 @@
-import { browser } from '$app/environment';
+import { browser } from '$app/env';
+import { resolve } from '$app/paths';
 
 /**
  * localStorage key for the API bearer token.
@@ -73,13 +74,13 @@ export function hasToken(): boolean {
  * API token (static, never rotated), so it could also be lifted out of
  * devtools and replayed against /api/* indefinitely.
  *
- * `replaceState` keeps the pre-logout page out of the history stack, so the
- * Back button cannot navigate back into it. `invalidateAll` re-runs the load
+ * `replace` keeps the pre-logout page out of the history stack, so the
+ * Back button cannot navigate back into it. `refreshAll` re-runs the load
  * functions so no already-fetched data is left rendered behind the login card.
  */
-export async function logout(basePath: string, goto: GotoFn): Promise<void> {
+export async function logout(goto: GotoFn): Promise<void> {
 	clearToken();
-	await goto(`${basePath}/login`, { replaceState: true, invalidateAll: true });
+	await goto(resolve('/login'), { replace: true, refreshAll: true });
 }
 
 /**
@@ -90,5 +91,5 @@ export async function logout(basePath: string, goto: GotoFn): Promise<void> {
  */
 type GotoFn = (
 	url: string,
-	opts?: { replaceState?: boolean; invalidateAll?: boolean }
+	opts?: { replace?: boolean; refreshAll?: boolean }
 ) => Promise<void>;
