@@ -4,7 +4,7 @@
    "Letzte Änderung" + "Nächste Lektion" tiles + "Heute danach" list.
 
    Depends on globals from mobile.js shell:
-     - titleEl, main, apiFetch, loadingShell, errorShell, observeFresh
+     - titleEl, main, apiFetch, loadView, refreshViewData, loadingShell, errorShell, observeFresh
      - planCard (from views/stundenplan.js), formatDay (from views/stundenplan.js)
    ============================================================ */
 'use strict';
@@ -142,6 +142,9 @@ function attachSwipeToDismiss(li, btn, change, onDismissed) {
         ? { kind: 'noten', ids: [change.row.kuerzel_id || change.row.id] }
         : { kind: 'stundenplan', ids: [change.row.id] };
       apiFetch('/api/dismiss', { method: 'POST', body }).then(() => {
+        // Cache nachziehen, sonst taucht der Eintrag beim nächsten Besuch
+        // kurz wieder auf (bis die Hintergrund-Aktualisierung ihn entfernt).
+        refreshViewData(['/api/noten', '/api/stundenplan']);
         if (typeof toast === 'function') {
           toast(change.kind === 'noten' ? 'Note entfernt' : 'Zimmerwechsel entfernt');
         }
@@ -200,17 +203,12 @@ function attachSwipeToDismiss(li, btn, change, onDismissed) {
 
 async function renderAktuell() {
   titleEl.textContent = 'Aktuell';
-  skeletonShell('aktuell');
-  try {
-    const [planData, notenData] = await Promise.all([
-      apiFetch('/api/stundenplan'),
-      apiFetch('/api/noten')
-    ]);
-    drawAktuell(planData, notenData);
-  } catch (e) {
-    if (e.silent) return;
-    errorShell(e.message || 'Fehler beim Laden');
-  }
+  await loadView(
+    'aktuell',
+    [{ path: '/api/stundenplan' }, { path: '/api/noten' }],
+    drawAktuell,
+    (e) => { errorShell(e.message || 'Fehler beim Laden'); }
+  );
 }
 
 /* iOS-PWA-Install-Hint — Safari unterstützt keinen automatischen
@@ -777,7 +775,10 @@ function drawAktuell(planData, notenData) {
         if (typeof toast === 'function') {
           toast(totalBefore + ' Änderung' + (totalBefore === 1 ? '' : 'en') + ' entfernt');
         }
-        // Re-render Aktuell (rebuilds das Tile, freshChanges ist jetzt leer)
+        // Re-render Aktuell (rebuilds das Tile, freshChanges ist jetzt leer).
+        // Erst den Cache auffrischen — sonst zeichnet renderAktuell den
+        // gecachten Stand mit den eben entfernten Einträgen.
+        await refreshViewData(['/api/noten', '/api/stundenplan']);
         if (typeof renderAktuell === 'function') {
           await renderAktuell();
         }

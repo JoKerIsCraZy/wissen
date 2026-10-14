@@ -155,6 +155,103 @@ async function apiFetch(path, opts) {
 }
 
 /* ============================================================
+   View-Daten-Cache (stale-while-revalidate)
+   Tab-Wechsel zeichnen sofort den zuletzt geladenen Stand statt jedes Mal
+   Skeleton + Netzwerk-Roundtrip. Im Hintergrund wird frisch geladen und nur
+   bei geänderten Daten neu gezeichnet. Nur GET-Antworten der Tab-Views,
+   lebt bis zum Seiten-Reload.
+   ============================================================ */
+const viewDataCache = new Map();     // path → letzte Antwort
+const viewDataInflight = new Map();  // path → laufender Abruf (Dedupe)
+let viewGeneration = 0;              // +1 pro Navigation, siehe route()
+let viewRevalidation = Promise.resolve();
+let viewPrefetchScheduled = false;
+
+// Alle GET-Pfade der Tab-Views — werden nach dem ersten Render vorgeladen.
+const VIEW_DATA_PATHS = ['/api/noten', '/api/stundenplan', '/api/stats', '/api/absenzen', '/api/noten/verlauf'];
+const VIEW_PREFETCH_TIMEOUT_MS = 3000;
+
+function fetchViewPath(path) {
+  if (viewDataInflight.has(path)) return viewDataInflight.get(path);
+  const p = apiFetch(path)
+    .then((data) => { viewDataCache.set(path, data); return data; })
+    .finally(() => { viewDataInflight.delete(path); });
+  viewDataInflight.set(path, p);
+  return p;
+}
+
+function fetchViewData(requests) {
+  return Promise.all(requests.map((r) =>
+    r.optional ? fetchViewPath(r.path).catch(() => null) : fetchViewPath(r.path)
+  ));
+}
+
+/* Lädt die Pfade neu in den Cache — nach Abfrage-Ende oder eigenen
+ * Änderungen (Dismiss), damit spätere Tab-Wechsel nicht kurz den alten
+ * Stand zeigen. */
+function refreshViewData(paths) {
+  return Promise.all(paths.map((path) => fetchViewPath(path).catch(() => null)));
+}
+
+function scheduleViewPrefetch() {
+  if (viewPrefetchScheduled) return;
+  viewPrefetchScheduled = true;
+  const run = () => {
+    VIEW_DATA_PATHS.forEach((path) => {
+      if (!viewDataCache.has(path)) fetchViewPath(path).catch(() => {});
+    });
+  };
+  if ('requestIdleCallback' in window) window.requestIdleCallback(run, { timeout: VIEW_PREFETCH_TIMEOUT_MS });
+  else setTimeout(run, 0);
+}
+
+/* Hintergrund-Update nicht unter laufender Eingabe (z.B. Notensuche) neu
+ * aufbauen — der Cache ist trotzdem aktuell, der nächste Besuch zeigt ihn. */
+function redrawKeepingScroll(drawFn) {
+  const active = document.activeElement;
+  if (active && main.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) return;
+  const y = readScrollY();
+  drawFn();
+  window.scrollTo(0, y);
+}
+
+/* Lädt die Daten einer Tab-View und zeichnet sie mit draw(...daten).
+ * requests: [{ path, optional }] — optional: Fehler → null statt Abbruch.
+ * Alles im Cache → sofort zeichnen, dann im Hintergrund neu laden.
+ * Sonst wie bisher: Skeleton → laden → zeichnen. Navigiert der User
+ * inzwischen weiter, wird nicht mehr gezeichnet (sonst überschriebe die
+ * alte View die neue). */
+async function loadView(viewName, requests, draw, onError) {
+  const generation = viewGeneration;
+  const isCurrent = () => generation === viewGeneration;
+  const hasCache = requests.every((r) => r.optional || viewDataCache.has(r.path));
+
+  if (!hasCache) {
+    viewRevalidation = Promise.resolve();
+    skeletonShell(viewName);
+    try {
+      const fresh = await fetchViewData(requests);
+      if (isCurrent()) draw(...fresh);
+    } catch (e) {
+      if (e && e.silent) return;
+      if (isCurrent()) onError(e);
+    }
+    return;
+  }
+
+  const cached = requests.map((r) => (viewDataCache.has(r.path) ? viewDataCache.get(r.path) : null));
+  draw(...cached);
+  viewRevalidation = fetchViewData(requests)
+    .then((fresh) => {
+      if (!isCurrent() || JSON.stringify(fresh) === JSON.stringify(cached)) return;
+      redrawKeepingScroll(() => draw(...fresh));
+    })
+    // Offline/Serverfehler: der zuletzt geladene Stand bleibt sichtbar (der
+    // SW zeigt bei Offline das Banner), der nächste Besuch lädt erneut.
+    .catch(() => {});
+}
+
+/* ============================================================
    Shared helpers (used by view files)
    ============================================================ */
 function gradeClass(n) {
@@ -538,6 +635,7 @@ function triggerEnterAnimation() {
 
 async function route() {
   if (!getToken()) { showLogin(); return; }
+  viewGeneration += 1;
   const { path, params } = parseHash();
 
   // Snapshot scroll of the outgoing route before we tear down the DOM.
@@ -571,6 +669,7 @@ async function route() {
   refreshBtn.hidden = false;
   currentRoutePath = path;
   await r.render();
+  scheduleViewPrefetch();
   // Tab-Transition: Fade-In nachdem die View ihren neuen DOM gemounted
   // hat. Bei consecutive Switches (schnelles Klicken durch die Tabs)
   // killt triggerEnterAnimation() die alte Animation per remove + reflow
@@ -698,6 +797,9 @@ function updateStatus(status) {
   // Wenn ein Scrape gerade beendet wurde und wir die Noten/Stundenplan-View
   // gerade offen haben → einmal frisch laden.
   if (wasRunning && !status.running && !status.lastError) {
+    // Gecachte Daten der übrigen Tabs auffrischen, sonst zeigt der nächste
+    // Tab-Wechsel kurz den Stand vor der Abfrage.
+    refreshViewData(Array.from(viewDataCache.keys()));
     const { path } = parseHash();
     if (path === '/noten' || path === '/stundenplan' || path === '/stats' || path === '/absenzen') {
       saveCurrentScroll();
@@ -1011,12 +1113,14 @@ backBtn.addEventListener('click', () => {
 });
 /* Refresh-Button: visuelles Feedback (Spin + aria-busy) während route()
  * läuft. try/finally garantiert dass der Spin-State auch bei Errors wieder
- * aufgeräumt wird — sonst dreht sich der Button für immer. */
+ * aufgeräumt wird — sonst dreht sich der Button für immer. route() zeichnet
+ * aus dem Cache sofort; gedreht wird, bis der frische Stand da ist. */
 refreshBtn.addEventListener('click', async () => {
   refreshBtn.classList.add('m-appbar__icon--spinning');
   refreshBtn.setAttribute('aria-busy', 'true');
   try {
     await route();
+    await viewRevalidation;
   } finally {
     refreshBtn.classList.remove('m-appbar__icon--spinning');
     refreshBtn.removeAttribute('aria-busy');
