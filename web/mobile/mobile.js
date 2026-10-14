@@ -30,6 +30,7 @@ function setToken(v)  { try { localStorage.setItem(STORAGE_TOKEN, v); } catch (_
 function clearToken() { try { localStorage.removeItem(STORAGE_TOKEN); } catch (_) {} }
 
 function showLogin(msg) {
+  resetViewData();
   loginStatus.textContent = msg || '';
   loginOverlay.hidden = false;
   setTimeout(() => loginToken.focus(), 50);
@@ -111,9 +112,12 @@ function toast(msg, opts) {
 /* ============================================================
    Tiny API client
    ============================================================ */
+/* opts.background: Hintergrund-Abruf (Vorladen, Cache auffrischen) — kein
+ * 429-Toast und kein Offline-Banner, das soll nur die sichtbare View steuern. */
 async function apiFetch(path, opts) {
   const token = getToken();
   if (!token) { showLogin(); throw new Error('no-token'); }
+  const background = !!(opts && opts.background);
   const headers = Object.assign({}, (opts && opts.headers) || {}, {
     'Authorization': 'Bearer ' + token,
     'Accept': 'application/json'
@@ -122,7 +126,9 @@ async function apiFetch(path, opts) {
     headers['Content-Type'] = 'application/json';
     opts = Object.assign({}, opts, { body: JSON.stringify(opts.body) });
   }
-  const res = await fetch(API_BASE + path, Object.assign({}, opts || {}, { headers }));
+  const init = Object.assign({}, opts || {}, { headers });
+  delete init.background;
+  const res = await fetch(API_BASE + path, init);
   if (res.status === 401) {
     clearToken();
     showLogin('Token ungültig — bitte neu eingeben');
@@ -131,7 +137,7 @@ async function apiFetch(path, opts) {
   if (res.status === 429) {
     let msg = 'Zu viele Anfragen — kurz warten';
     try { const j = await res.json(); if (j && j.error) msg = j.error; } catch (_) {}
-    toast(msg, 'err');
+    if (!background) toast(msg, 'err');
     throw new Error(msg);
   }
   if (!res.ok) {
@@ -146,11 +152,11 @@ async function apiFetch(path, opts) {
   // falls vorhanden), frische Online-Antwort → Banner ausblenden.
   const offlineStale = res.headers.get('X-WN-Offline') === '1';
   if (res.status === 204) {
-    setOfflineGlance(offlineStale ? true : null);
+    if (!background) setOfflineGlance(offlineStale ? true : null);
     return null;
   }
   const data = await res.json();
-  setOfflineGlance(offlineStale ? (data && data.fetchedAt ? data.fetchedAt : true) : null);
+  if (!background) setOfflineGlance(offlineStale ? (data && data.fetchedAt ? data.fetchedAt : true) : null);
   return data;
 }
 
@@ -162,61 +168,92 @@ async function apiFetch(path, opts) {
    lebt bis zum Seiten-Reload.
    ============================================================ */
 const viewDataCache = new Map();     // path → letzte Antwort
-const viewDataInflight = new Map();  // path → laufender Abruf (Dedupe)
+const viewDataInflight = new Map();  // path → jüngster laufender Abruf
 let viewGeneration = 0;              // +1 pro Navigation, siehe route()
-let viewRevalidation = Promise.resolve();
+let viewRevalidation = Promise.resolve(null);  // → null oder Error
 let viewPrefetchScheduled = false;
+let viewPointerDown = false;
 
 // Alle GET-Pfade der Tab-Views — werden nach dem ersten Render vorgeladen.
 const VIEW_DATA_PATHS = ['/api/noten', '/api/stundenplan', '/api/stats', '/api/absenzen', '/api/noten/verlauf'];
 const VIEW_PREFETCH_TIMEOUT_MS = 3000;
 
-function fetchViewPath(path) {
-  if (viewDataInflight.has(path)) return viewDataInflight.get(path);
-  const p = apiFetch(path)
-    .then((data) => { viewDataCache.set(path, data); return data; })
-    .finally(() => { viewDataInflight.delete(path); });
+main.addEventListener('pointerdown', () => { viewPointerDown = true; });
+window.addEventListener('pointerup', () => { viewPointerDown = false; });
+window.addEventListener('pointercancel', () => { viewPointerDown = false; });
+
+/* opts.fresh: nicht an einen laufenden Abruf anhängen — nach Änderungen
+ * (Dismiss, Abfrage-Ende) könnte der noch den alten Stand liefern.
+ * opts.background: keine 429-Toasts / kein Offline-Banner (siehe apiFetch).
+ * In den Cache schreibt nur der jüngste Abruf je Pfad. */
+function fetchViewPath(path, opts) {
+  const fresh = !!(opts && opts.fresh);
+  if (!fresh && viewDataInflight.has(path)) return viewDataInflight.get(path);
+  const p = apiFetch(path, { background: !!(opts && opts.background) })
+    .then((data) => {
+      if (viewDataInflight.get(path) === p) viewDataCache.set(path, data);
+      return data;
+    })
+    .finally(() => { if (viewDataInflight.get(path) === p) viewDataInflight.delete(path); });
   viewDataInflight.set(path, p);
   return p;
 }
 
 function fetchViewData(requests) {
-  return Promise.all(requests.map((r) =>
-    r.optional ? fetchViewPath(r.path).catch(() => null) : fetchViewPath(r.path)
-  ));
+  return Promise.all(requests.map((r) => {
+    const p = fetchViewPath(r.path);
+    // Optionale Daten (Verlauf): bei Fehler den letzten guten Stand behalten.
+    return r.optional ? p.catch(() => (viewDataCache.has(r.path) ? viewDataCache.get(r.path) : null)) : p;
+  }));
 }
 
 /* Lädt die Pfade neu in den Cache — nach Abfrage-Ende oder eigenen
  * Änderungen (Dismiss), damit spätere Tab-Wechsel nicht kurz den alten
  * Stand zeigen. */
 function refreshViewData(paths) {
-  return Promise.all(paths.map((path) => fetchViewPath(path).catch(() => null)));
+  return Promise.all(paths.map((path) =>
+    fetchViewPath(path, { fresh: true, background: true }).catch(() => null)
+  ));
+}
+
+/* Daten des vorherigen Logins verwerfen; Vorladen nach dem nächsten
+ * Login erneut einplanen. */
+function resetViewData() {
+  viewDataCache.clear();
+  viewPrefetchScheduled = false;
 }
 
 function scheduleViewPrefetch() {
-  if (viewPrefetchScheduled) return;
+  if (viewPrefetchScheduled || !getToken()) return;
   viewPrefetchScheduled = true;
   const run = () => {
+    // Token inzwischen weg (401 → Login): nicht vorladen — apiFetch würde
+    // sonst die Login-Meldung überschreiben.
+    if (!getToken()) { viewPrefetchScheduled = false; return; }
     VIEW_DATA_PATHS.forEach((path) => {
-      if (!viewDataCache.has(path)) fetchViewPath(path).catch(() => {});
+      if (!viewDataCache.has(path)) fetchViewPath(path, { background: true }).catch(() => {});
     });
   };
   if ('requestIdleCallback' in window) window.requestIdleCallback(run, { timeout: VIEW_PREFETCH_TIMEOUT_MS });
   else setTimeout(run, 0);
 }
 
-/* Hintergrund-Update nicht unter laufender Eingabe (z.B. Notensuche) neu
- * aufbauen — der Cache ist trotzdem aktuell, der nächste Besuch zeigt ihn. */
-function redrawKeepingScroll(drawFn) {
+/* Hintergrund-Update nicht neu aufbauen, solange der User mit der View
+ * interagiert: Eingabe fokussiert (Suche), Finger auf dem Screen (Swipe),
+ * etwas aufgeklappt (Plan-Card, Tile) oder Deep-Link (?focus=, würde
+ * erneut öffnen und hinscrollen). Der Cache ist trotzdem aktuell, der
+ * nächste Besuch zeigt den neuen Stand. */
+function viewIsBusy() {
   const active = document.activeElement;
-  if (active && main.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) return;
-  const y = readScrollY();
-  drawFn();
-  window.scrollTo(0, y);
+  if (active && main.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) return true;
+  if (viewPointerDown) return true;
+  if (main.querySelector('[aria-expanded="true"], .is-open')) return true;
+  return parseHash().params.has('focus');
 }
 
 /* Lädt die Daten einer Tab-View und zeichnet sie mit draw(...daten).
- * requests: [{ path, optional }] — optional: Fehler → null statt Abbruch.
+ * requests: [{ path, optional }] — optional: Fehler → null bzw. letzter
+ * guter Stand statt Abbruch.
  * Alles im Cache → sofort zeichnen, dann im Hintergrund neu laden.
  * Sonst wie bisher: Skeleton → laden → zeichnen. Navigiert der User
  * inzwischen weiter, wird nicht mehr gezeichnet (sonst überschriebe die
@@ -227,7 +264,7 @@ async function loadView(viewName, requests, draw, onError) {
   const hasCache = requests.every((r) => r.optional || viewDataCache.has(r.path));
 
   if (!hasCache) {
-    viewRevalidation = Promise.resolve();
+    viewRevalidation = Promise.resolve(null);
     skeletonShell(viewName);
     try {
       const fresh = await fetchViewData(requests);
@@ -240,15 +277,27 @@ async function loadView(viewName, requests, draw, onError) {
   }
 
   const cached = requests.map((r) => (viewDataCache.has(r.path) ? viewDataCache.get(r.path) : null));
-  draw(...cached);
+  try {
+    draw(...cached);
+  } catch (e) {
+    onError(e);
+  }
   viewRevalidation = fetchViewData(requests)
     .then((fresh) => {
-      if (!isCurrent() || JSON.stringify(fresh) === JSON.stringify(cached)) return;
-      redrawKeepingScroll(() => draw(...fresh));
+      if (!isCurrent() || JSON.stringify(fresh) === JSON.stringify(cached) || viewIsBusy()) return null;
+      const y = readScrollY();
+      try {
+        draw(...fresh);
+      } catch (e) {
+        onError(e);
+        return null;
+      }
+      window.scrollTo(0, y);
+      return null;
     })
     // Offline/Serverfehler: der zuletzt geladene Stand bleibt sichtbar (der
-    // SW zeigt bei Offline das Banner), der nächste Besuch lädt erneut.
-    .catch(() => {});
+    // SW zeigt bei Offline das Banner). Der Refresh-Button meldet den Fehler.
+    .catch((e) => e);
 }
 
 /* ============================================================
@@ -1120,7 +1169,8 @@ refreshBtn.addEventListener('click', async () => {
   refreshBtn.setAttribute('aria-busy', 'true');
   try {
     await route();
-    await viewRevalidation;
+    const err = await viewRevalidation;
+    if (err && !err.silent) toast(err.message || 'Aktualisieren fehlgeschlagen', 'err');
   } finally {
     refreshBtn.classList.remove('m-appbar__icon--spinning');
     refreshBtn.removeAttribute('aria-busy');

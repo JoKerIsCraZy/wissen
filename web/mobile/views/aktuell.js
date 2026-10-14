@@ -4,7 +4,7 @@
    "Letzte Änderung" + "Nächste Lektion" tiles + "Heute danach" list.
 
    Depends on globals from mobile.js shell:
-     - titleEl, main, apiFetch, loadView, refreshViewData, loadingShell, errorShell, observeFresh
+     - titleEl, main, apiFetch, loadView, refreshViewData, viewDataCache, parseHash, loadingShell, errorShell, observeFresh
      - planCard (from views/stundenplan.js), formatDay (from views/stundenplan.js)
    ============================================================ */
 'use strict';
@@ -777,9 +777,11 @@ function drawAktuell(planData, notenData) {
         }
         // Re-render Aktuell (rebuilds das Tile, freshChanges ist jetzt leer).
         // Erst den Cache auffrischen — sonst zeichnet renderAktuell den
-        // gecachten Stand mit den eben entfernten Einträgen.
-        await refreshViewData(['/api/noten', '/api/stundenplan']);
-        if (typeof renderAktuell === 'function') {
+        // gecachten Stand mit den eben entfernten Einträgen. "all" räumt
+        // serverseitig auch Absenzen ab → alle gecachten Pfade.
+        await refreshViewData(Array.from(viewDataCache.keys()));
+        // Inzwischen auf einen anderen Tab gewechselt → nicht darüberzeichnen.
+        if (typeof renderAktuell === 'function' && parseHash().path === '/aktuell') {
           await renderAktuell();
         }
       } catch (e) {
