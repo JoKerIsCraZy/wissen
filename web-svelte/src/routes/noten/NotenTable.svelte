@@ -7,7 +7,7 @@
   import { slide } from 'svelte/transition';
   import { expoOut, cubicOut } from 'svelte/easing';
 
-  import type { PruefungRow } from '$lib/api/types';
+  import type { PruefungRow } from '#lib/api/types.js';
   import {
     gradeClass,
     fmtGrade,

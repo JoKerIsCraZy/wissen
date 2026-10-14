@@ -20,15 +20,15 @@
 
   import { onMount, onDestroy } from 'svelte';
   import { fade } from 'svelte/transition';
-  import { getStats, getNoten, getNotenVerlauf } from '$lib/api/endpoints';
-  import { pushToast } from '$lib/stores/toast.svelte';
-  import { benoetigteIpa } from '$lib/utils/qv-goalseek.js';
+  import { getStats, getNoten, getNotenVerlauf } from '#lib/api/endpoints.js';
+  import { pushToast } from '#lib/stores/toast.svelte.js';
+  import { benoetigteIpa } from '#lib/utils/qv-goalseek.js';
   import type {
     StatsResponse,
     NotenResponse,
     NotenRow,
     VerlaufResponse
-  } from '$lib/api/types';
+  } from '#lib/api/types.js';
 
   let stats = $state<StatsResponse | null>(null);
   let noten = $state<NotenResponse | null>(null);
@@ -643,7 +643,7 @@
   /* Zielnoten-Rechner: die interaktive Umkehrung der Was-wäre-wenn-Pillen.
    * Statt fixer IPA → Gesamtnote fragt er rückwärts: welche IPA brauche ich
    * (mindestens), damit die QV-Gesamtnote mein Ziel hält? Die Goal-Seek-
-   * Logik liegt in $lib/utils/qv-goalseek.js (über das echte 0.1-Raster
+   * Logik liegt in #lib/utils/qv-goalseek.js (über das echte 0.1-Raster
    * iteriert, deckungsgleich mit der Forward-Formel oben). */
   const ZIEL_PRESETS = [4.0, 4.5, 5.0, 5.5] as const;
   let zielNote = $state<number>(4.0);

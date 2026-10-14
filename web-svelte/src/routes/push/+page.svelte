@@ -5,8 +5,8 @@
 		registerPush,
 		unregisterPush,
 		sendTestPush
-	} from '$lib/api/endpoints';
-	import { pushToast } from '$lib/stores/toast.svelte';
+	} from '#lib/api/endpoints.js';
+	import { pushToast } from '#lib/stores/toast.svelte.js';
 
 	type PushState =
 		| 'unsupported'

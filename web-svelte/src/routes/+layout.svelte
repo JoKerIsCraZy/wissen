@@ -1,28 +1,29 @@
 <script lang="ts">
-  import '$lib/tokens.css';
+  import '#lib/tokens.css';
 
   import { onMount, type Snippet } from 'svelte';
   import { goto, afterNavigate } from '$app/navigation';
   import { page } from '$app/state';
-  import { base } from '$app/paths';
+  import { resolve } from '$app/paths';
+  import type { RouteId as AppRouteId } from '$app/types';
 
-  import Rail from '$lib/components/Rail.svelte';
-  import Topbar from '$lib/components/Topbar.svelte';
-  import LogPeek from '$lib/components/LogPeek.svelte';
-  import Toast from '$lib/components/Toast.svelte';
-  import CommandPalette from '$lib/components/CommandPalette.svelte';
-  import HelpOverlay from '$lib/components/HelpOverlay.svelte';
-  import MobileTabBar from '$lib/components/MobileTabBar.svelte';
-  import ScrollTopFab from '$lib/components/ScrollTopFab.svelte';
-  import ReleaseUpdateModal from '$lib/components/ReleaseUpdateModal.svelte';
+  import Rail from '#lib/components/Rail.svelte';
+  import Topbar from '#lib/components/Topbar.svelte';
+  import LogPeek from '#lib/components/LogPeek.svelte';
+  import Toast from '#lib/components/Toast.svelte';
+  import CommandPalette from '#lib/components/CommandPalette.svelte';
+  import HelpOverlay from '#lib/components/HelpOverlay.svelte';
+  import MobileTabBar from '#lib/components/MobileTabBar.svelte';
+  import ScrollTopFab from '#lib/components/ScrollTopFab.svelte';
+  import ReleaseUpdateModal from '#lib/components/ReleaseUpdateModal.svelte';
 
-  import { peek } from '$lib/stores/peek.svelte';
-  import { pushToast } from '$lib/stores/toast.svelte';
-  import { getRouteId } from '$lib/stores/route.svelte';
-  import { triggerScrape as apiTriggerScrape, getLogs } from '$lib/api/endpoints';
-  import { ApiHttpError } from '$lib/api/client';
-  import { connectEvents, type SseClient } from '$lib/api/sse';
-  import { live } from '$lib/stores/live.svelte';
+  import { peek } from '#lib/stores/peek.svelte.js';
+  import { pushToast } from '#lib/stores/toast.svelte.js';
+  import { getRouteId } from '#lib/stores/route.svelte.js';
+  import { triggerScrape as apiTriggerScrape, getLogs } from '#lib/api/endpoints.js';
+  import { ApiHttpError } from '#lib/api/client.js';
+  import { connectEvents, type SseClient } from '#lib/api/sse.js';
+  import { live } from '#lib/stores/live.svelte.js';
 
   interface LayoutProps {
     children: Snippet;
@@ -56,7 +57,7 @@
     return target.isContentEditable;
   }
 
-  const G_ROUTE_MAP: Record<string, string> = {
+  const G_ROUTE_MAP: Record<string, AppRouteId> = {
     j: '/',            // Jetzt
     s: '/stundenplan', // Stundenplan
     n: '/noten',       // Noten
@@ -113,7 +114,7 @@
       });
     };
     if (getRouteId(page.url.pathname) !== 'noten') {
-      void goto(`${base}/noten`).then(goAndFocus);
+      void goto(resolve('/noten')).then(goAndFocus);
     } else {
       goAndFocus();
     }
@@ -179,7 +180,7 @@
       const route = G_ROUTE_MAP[e.key.toLowerCase()];
       if (route) {
         e.preventDefault();
-        void goto(`${base}${route}`);
+        void goto(resolve(route));
       }
       return;
     }

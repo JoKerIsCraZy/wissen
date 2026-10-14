@@ -1,10 +1,10 @@
 <script lang="ts">
 	// Minimal shell for the /login route. Bypasses the main app layout
 	// (rail + topbar) so the login screen reads as a stand-alone surface.
-	// Tokens are pulled from $lib/tokens.css (owned by B1) — the same
+	// Tokens are pulled from #lib/tokens.css (owned by B1) — the same
 	// stylesheet the main shell uses, so the login screen and the rest
 	// of the app stay in lockstep.
-	import '$lib/tokens.css';
+	import '#lib/tokens.css';
 
 	let { children } = $props();
 </script>

@@ -7,7 +7,7 @@
    *
    * Empty state: tile is disabled and shows "Nichts neu".
    */
-  import type { NotenRow, StundenplanRow } from '$lib/api/types';
+  import type { NotenRow, StundenplanRow } from '#lib/api/types.js';
 
   type Change =
     | { kind: 'noten'; row: NotenRow; ts: number }

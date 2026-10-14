@@ -3,7 +3,7 @@
 //
 // Thin layer around fetch() that:
 //   - prefixes /api
-//   - injects the Bearer token from $lib/auth (B3 owns getToken)
+//   - injects the Bearer token from #lib/auth (B3 owns getToken)
 //   - parses JSON responses
 //   - throws ApiHttpError with status + body for non-2xx
 //
@@ -11,7 +11,7 @@
 // against a mock fetch.
 // =============================================================
 
-import { clearToken, getToken } from '$lib/auth';
+import { clearToken, getToken } from '#lib/auth.js';
 import type { ApiErrorBody } from './types';
 
 const BASE = '/api';

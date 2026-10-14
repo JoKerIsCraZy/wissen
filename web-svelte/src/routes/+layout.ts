@@ -1,7 +1,7 @@
 import { redirect } from '@sveltejs/kit';
-import { browser } from '$app/environment';
-import { base } from '$app/paths';
-import { hasToken } from '$lib/auth';
+import { browser } from '$app/env';
+import { resolve } from '$app/paths';
+import { hasToken } from '#lib/auth.js';
 import type { LayoutLoad } from './$types';
 
 // SPA mode: token lives in localStorage, only readable in the browser.
@@ -13,9 +13,9 @@ export const prerender = false;
  * unauthenticated; redirects every other route to /login when no token
  * is present.
  *
- * `redirect()` does not auto-prefix the configured `paths.base`, so we
- * prepend it manually using `$app/paths`. With `base = "/v2"` the
- * target becomes "/v2/login".
+ * `redirect()` does not auto-prefix the configured `paths.base`, so the
+ * target goes through `resolve()` from `$app/paths`. With
+ * `base = "/wissen/desktop-demo"` it becomes "/wissen/desktop-demo/login".
  */
 export const load: LayoutLoad = async ({ url }) => {
 	// During SSR (build / pre-render) we have no localStorage, so just
@@ -23,11 +23,12 @@ export const load: LayoutLoad = async ({ url }) => {
 	if (!browser) return {};
 
 	const path = url.pathname;
-	const isLoginRoute = path === `${base}/login` || path.startsWith(`${base}/login/`);
+	const loginPath = resolve('/login');
+	const isLoginRoute = path === loginPath || path.startsWith(`${loginPath}/`);
 	if (isLoginRoute) return {};
 
 	if (!hasToken()) {
-		throw redirect(302, `${base}/login`);
+		throw redirect(302, loginPath);
 	}
 
 	return {};

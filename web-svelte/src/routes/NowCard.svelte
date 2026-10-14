@@ -6,8 +6,8 @@
    * NowCard intentionally does NOT fall back to it. That way the two cards
    * stay semantically distinct: Aktuell = jetzt, Nächste = gleich.
    */
-  import FloorPlan from '$lib/floorplans/FloorPlan.svelte';
-  import type { StundenplanRow } from '$lib/api/types';
+  import FloorPlan from '#lib/floorplans/FloorPlan.svelte';
+  import type { StundenplanRow } from '#lib/api/types.js';
 
   interface Props {
     currentEvent: StundenplanRow | null;

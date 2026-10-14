@@ -22,11 +22,11 @@
   import { onMount, onDestroy } from 'svelte';
   import { page } from '$app/state';
 
-  import { isOnlineRoom } from '$lib/floorplans/helpers';
-  import { getStundenplan, markSeen } from '$lib/api/endpoints';
-  import { isApiHttpError } from '$lib/api/client';
-  import { pushToast } from '$lib/stores/toast.svelte';
-  import type { StundenplanRow } from '$lib/api/types';
+  import { isOnlineRoom } from '#lib/floorplans/helpers.js';
+  import { getStundenplan, markSeen } from '#lib/api/endpoints.js';
+  import { isApiHttpError } from '#lib/api/client.js';
+  import { pushToast } from '#lib/stores/toast.svelte.js';
+  import type { StundenplanRow } from '#lib/api/types.js';
 
   import PlanEvent from './PlanEvent.svelte';
 

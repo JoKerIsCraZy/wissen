@@ -23,16 +23,16 @@
    * NowCard.svelte and LastChangedTile.svelte respectively so this file can
    * stay an orchestrator under the line cap.
    */
-  import { getStatus, getStundenplan, getNoten, dismissChanges } from '$lib/api/endpoints';
-  import { pushToast } from '$lib/stores/toast.svelte';
-  import { isApiHttpError } from '$lib/api/client';
+  import { getStatus, getStundenplan, getNoten, dismissChanges } from '#lib/api/endpoints.js';
+  import { pushToast } from '#lib/stores/toast.svelte.js';
+  import { isApiHttpError } from '#lib/api/client.js';
   import { goto } from '$app/navigation';
-  import { base } from '$app/paths';
+  import { resolve } from '$app/paths';
   import type {
     ApiStatus,
     StundenplanRow,
     NotenRow,
-  } from '$lib/api/types';
+  } from '#lib/api/types.js';
 
   import NowCard from './NowCard.svelte';
   import LessonCard from './LessonCard.svelte';
@@ -705,16 +705,16 @@
     /* Module deep-link by code — the noten page already handles ?focus= */
     const code = row.kuerzel_code || row.kuerzel_id;
     if (code) {
-      void goto(`${base}/noten?focus=${encodeURIComponent(String(code))}`);
+      void goto(resolve(`/noten?focus=${encodeURIComponent(String(code))}`));
     } else {
-      void goto(`${base}/noten`);
+      void goto(resolve('/noten'));
     }
   }
   function openLesson(row: StundenplanRow): void {
-    void goto(`${base}/stundenplan?focus=${encodeURIComponent(String(row.id))}`);
+    void goto(resolve(`/stundenplan?focus=${encodeURIComponent(String(row.id))}`));
   }
   function goToPlanFocus(id: number): void {
-    void goto(`${base}/stundenplan?focus=${encodeURIComponent(String(id))}`);
+    void goto(resolve(`/stundenplan?focus=${encodeURIComponent(String(id))}`));
   }
 </script>
 

@@ -1,15 +1,17 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { base } from '$app/paths';
-  import { peek } from '$lib/stores/peek.svelte';
-  import { getRouteId, type RouteId } from '$lib/stores/route.svelte';
-  import { logout } from '$lib/auth';
+  import { resolve } from '$app/paths';
+  import type { RouteId as AppRouteId } from '$app/types';
+  import { base } from '#lib/paths.js';
+  import { peek } from '#lib/stores/peek.svelte.js';
+  import { getRouteId, type RouteId } from '#lib/stores/route.svelte.js';
+  import { logout } from '#lib/auth.js';
 
   interface NavItem {
     id: RouteId;
     label: string;
-    route: string;
+    route: AppRouteId;
     shortcut: string;
   }
 
@@ -26,12 +28,12 @@
 
   let activeId = $derived<RouteId>(getRouteId(page.url.pathname));
 
-  function navigate(route: string): void {
-    void goto(`${base}${route}`);
+  function navigate(route: AppRouteId): void {
+    void goto(resolve(route));
   }
 
   function onLogout(): void {
-    void logout(base, goto);
+    void logout(goto);
   }
 </script>
 

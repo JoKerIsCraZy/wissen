@@ -9,9 +9,9 @@
    * current event, the next-today event already IS the cardEvent above, so a
    * tile would just duplicate it.
    */
-  import type { StundenplanRow } from '$lib/api/types';
-  import FloorPlan from '$lib/floorplans/FloorPlan.svelte';
-  import { FLOOR_LABELS, normalizeRoom, roomToFloor } from '$lib/floorplans/helpers';
+  import type { StundenplanRow } from '#lib/api/types.js';
+  import FloorPlan from '#lib/floorplans/FloorPlan.svelte';
+  import { FLOOR_LABELS, normalizeRoom, roomToFloor } from '#lib/floorplans/helpers.js';
 
   interface Props {
     nextTile: StundenplanRow | null;

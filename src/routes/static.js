@@ -35,7 +35,7 @@ module.exports = function mountStatic(app) {
   }
 
   // 1) SvelteKit SPA build — index.html, _app/, service-worker.js, etc.
-  //    Served at site root '/' (paths.base = '' in svelte.config.js).
+  //    Served at site root '/' (paths.base = '' in web-svelte/vite.config.ts).
   if (fs.existsSync(DIST_DIR)) {
     app.use(express.static(DIST_DIR, { setHeaders: setStaticHeaders }));
   }

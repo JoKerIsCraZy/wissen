@@ -5,7 +5,7 @@
    *   3. Abwesenheiten gesamt
    * Rein präsentational — bekommt die (server-)Stats + Modul-Liste als Props.
    */
-  import type { AbsenzenStats } from '$lib/api/types';
+  import type { AbsenzenStats } from '#lib/api/types.js';
   import { attendanceClass, fmtPct, type IndexedAbsenzRow } from './helpers';
 
   type QuickFilter = { key: string; label: string; count: number; apply: () => void };

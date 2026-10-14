@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { toast, type ToastKind } from '$lib/stores/toast.svelte';
+  import { toast, type ToastKind } from '#lib/stores/toast.svelte.js';
 
   function glyph(kind: ToastKind): string {
     if (kind === 'success') return '✓';

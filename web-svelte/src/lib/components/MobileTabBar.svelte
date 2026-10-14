@@ -1,15 +1,16 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { base } from '$app/paths';
-  import { peek } from '$lib/stores/peek.svelte';
-  import { getRouteId, type RouteId } from '$lib/stores/route.svelte';
-  import { logout } from '$lib/auth';
+  import { resolve } from '$app/paths';
+  import type { RouteId as AppRouteId } from '$app/types';
+  import { peek } from '#lib/stores/peek.svelte.js';
+  import { getRouteId, type RouteId } from '#lib/stores/route.svelte.js';
+  import { logout } from '#lib/auth.js';
 
   interface TabItem {
     id: RouteId | 'more';
     label: string;
-    route?: string;
+    route?: AppRouteId;
   }
 
   const tabs: TabItem[] = [
@@ -33,9 +34,9 @@
     return routeId === tab.id;
   }
 
-  function navigate(route: string): void {
+  function navigate(route: AppRouteId): void {
     sheetOpen = false;
-    void goto(`${base}${route}`);
+    void goto(resolve(route));
   }
 
   function onTab(tab: TabItem): void {
@@ -81,7 +82,7 @@
 
   function onLogout(): void {
     sheetOpen = false;
-    void logout(base, goto);
+    void logout(goto);
   }
 
   function onLogsToggle(): void {

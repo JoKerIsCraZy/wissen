@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { clearToken, setToken } from '$lib/auth';
+	import { clearToken, setToken } from '#lib/auth.js';
 
 	// Wer den Login-Screen sieht, ist per Definition abgemeldet. Ein hier noch
 	// vorhandener Token wäre eine gültige Sitzung, die nur nicht angezeigt wird
@@ -49,15 +49,14 @@
 				return;
 			}
 			setToken(candidate);
-			// Defer the SvelteKit navigation runtime (`goto` + `base`) off the
+			// Defer the SvelteKit navigation runtime (`goto` + `resolve`) off the
 			// initial login bundle — they are only needed AFTER a successful
 			// auth round-trip, so they have no business in the cold-load path.
-			// `base` resolves to "/v2" in this project (or "" in dev).
-			const [{ goto }, { base }] = await Promise.all([
+			const [{ goto }, { resolve }] = await Promise.all([
 				import('$app/navigation'),
 				import('$app/paths')
 			]);
-			await goto(`${base}/`);
+			await goto(resolve('/'));
 		} catch {
 			error = 'Server nicht erreichbar — prüfe Netzwerk oder Server-Status.';
 		} finally {

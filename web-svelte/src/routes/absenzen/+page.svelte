@@ -13,8 +13,8 @@
   import { onMount, onDestroy } from 'svelte';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
-  import { getAbsenzen, getAbsenzenLektionen, markSeen } from '$lib/api/endpoints';
-  import type { AbsenzLektionRow, AbsenzenStats } from '$lib/api/types';
+  import { getAbsenzen, getAbsenzenLektionen, markSeen } from '#lib/api/endpoints.js';
+  import type { AbsenzLektionRow, AbsenzenStats } from '#lib/api/types.js';
 
   import AbsenzenTiles from './AbsenzenTiles.svelte';
   import AbsenzenFilters from './AbsenzenFilters.svelte';
@@ -351,8 +351,8 @@
   });
 
   /* URL-state sync: queryNumber + activeTyp + onlyUnterMin + sortBy in die
-   * searchParams spiegeln. replaceState statt push, damit der Back-Button
-   * nicht durch jede Filter-Änderung tickt; noScroll+keepFocus damit das
+   * searchParams spiegeln. replace statt push, damit der Back-Button
+   * nicht durch jede Filter-Änderung tickt; reset: false damit das
    * Input den Fokus behält. */
   let initialUrlSyncDone = false;
   $effect(() => {
@@ -365,7 +365,7 @@
       initialUrlSyncDone = true;
       return;
     }
-    const params = new URLSearchParams(page.url.searchParams);
+    const params = new URLSearchParams(page.url.search);
     if (q.trim()) params.set('q', q);
     else params.delete('q');
     const typCsv = [...typs].sort().join(',');
@@ -379,7 +379,7 @@
     const current = page.url.searchParams.toString();
     if (next === current) return;
     const url = next ? `${page.url.pathname}?${next}` : page.url.pathname;
-    void goto(url, { replaceState: true, noScroll: true, keepFocus: true });
+    void goto(url, { replace: true, reset: false });
   });
 
   onDestroy(() => {

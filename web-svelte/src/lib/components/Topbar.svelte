@@ -1,12 +1,12 @@
 <script module lang="ts">
-  // StatusKind lebt in $lib/api/types (geteiltes .ts-Modul). Hier nur als
+  // StatusKind lebt in #lib/api/types (geteiltes .ts-Modul). Hier nur als
   // Komfort-Re-Export, damit bestehende Konsumenten weiter funktionieren —
   // ein `import type` aus einer .svelte-Datei schlägt sonst mit TS2614 fehl.
-  export type { StatusKind } from '$lib/api/types';
+  export type { StatusKind } from '#lib/api/types.js';
 </script>
 
 <script lang="ts">
-  import type { StatusKind } from '$lib/api/types';
+  import type { StatusKind } from '#lib/api/types.js';
 
   interface TopbarProps {
     status?: StatusKind;

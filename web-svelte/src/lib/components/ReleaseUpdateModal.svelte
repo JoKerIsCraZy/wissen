@@ -14,7 +14,7 @@
 -->
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { getVersion, type VersionResponse } from '$lib/api/endpoints';
+	import { getVersion, type VersionResponse } from '#lib/api/endpoints.js';
 
 	let data = $state<VersionResponse | null>(null);
 	let visible = $state(false);

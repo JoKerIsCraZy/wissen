@@ -22,7 +22,7 @@
 // generic `onmessage` semantics still work.
 // =============================================================
 
-import { getToken } from '$lib/auth';
+import { getToken } from '#lib/auth.js';
 import type { ApiStatus, LogEntry, ScrapeDonePayload } from './types';
 
 /** Map of event-name → payload type for type-safe `on(...)`. */
