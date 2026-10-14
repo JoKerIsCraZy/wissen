@@ -27,6 +27,11 @@
   let activeSheet = null;          // { overlay, sheet, close, prevFocus, titleId }
   let titleIdCounter = 0;
 
+  /* Bereits geladene Modul-Details (kuerzelId → API-Antwort). Erneutes
+   * Öffnen zeigt sofort den letzten Stand und aktualisiert im Hintergrund
+   * (stale-while-revalidate). Lebt nur bis zum nächsten Seiten-Reload. */
+  const detailCache = new Map();
+
   function nextTitleId() {
     titleIdCounter += 1;
     return 'm-sheet-title-' + titleIdCounter;
@@ -70,7 +75,7 @@
   function fillLoadingBody(sheet) {
     const body = sheet.querySelector('.m-sheet__body');
     body.replaceChildren();
-    body.innerHTML = '<div class="m-loading"><div class="m-spinner"></div>Lade Modul …</div>';
+    body.innerHTML = '<div class="m-loading m-loading--deferred"><div class="m-spinner"></div>Lade Modul …</div>';
   }
 
   function fillErrorBody(sheet, msg) {
@@ -470,17 +475,25 @@
 
   async function openModulSheet(kuerzelId, kuerzelCode) {
     if (!kuerzelId) return;
+    const cached = detailCache.get(kuerzelId);
     const handle = attach(kuerzelCode || 'Modul');
+    // Synchron vor dem ersten Paint — der Lade-Body wird nie sichtbar.
+    if (cached) fillSuccessBody(handle.sheet, cached);
     try {
       const data = await apiFetch(
         '/api/noten/' + encodeURIComponent(kuerzelId) + '/pruefungen'
       );
+      detailCache.set(kuerzelId, data);
       // If user closed it during the fetch, abandon the result.
       if (activeSheet !== handle) return;
+      // Unveränderter Stand → nicht neu rendern (kein Sprung beim Lesen).
+      if (cached && JSON.stringify(cached) === JSON.stringify(data)) return;
       fillSuccessBody(handle.sheet, data);
     } catch (e) {
       if (e && e.silent) return;
       if (activeSheet !== handle) return;
+      // Mit Cache bleibt der letzte Stand stehen; das nächste Öffnen lädt neu.
+      if (cached) return;
       fillErrorBody(handle.sheet, (e && e.message) || 'Fehler beim Laden');
     }
   }

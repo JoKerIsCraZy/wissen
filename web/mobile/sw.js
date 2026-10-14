@@ -15,7 +15,7 @@
 // den SSE-Stream über ein Einmal-Ticket statt über ?token= in der URL — ein
 // aus dem Cache weiterlaufender alter mobile.js würde sonst weiter den Token
 // in die URL (und damit in die Access-Logs) schreiben.
-const VERSION = 'wn-29';
+const VERSION = 'wn-30';
 const SHELL_CACHE = 'wn-shell-' + VERSION;
 const API_CACHE = 'wn-api-' + VERSION;
 
