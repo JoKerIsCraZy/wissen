@@ -54,7 +54,7 @@ ENV NODE_ENV=production \
 # auflösbar sein, UID 0 ist immer eindeutig. Semantisch identisch.
 USER 0
 ARG DEBIAN_FRONTEND=noninteractive
-ARG APT_REFRESH=2026-06-18
+ARG APT_REFRESH=2026-10-24
 # libc-bin's ldconfig post-install script intermittently SIGSEGVs (exit 139)
 # under qemu-user-static during the linux/arm64 leg of buildx multi-arch
 # builds. apt then aborts the whole `upgrade` with "Sub-process /usr/bin/dpkg
@@ -82,6 +82,21 @@ RUN echo "apt-refresh=${APT_REFRESH}" \
  && npm install -g npm@11.18.0 \
  && npm cache clean --force \
  && rm -rf /root/.npm
+
+# Node2Shell-Guard (CVE-2026-111497, Out-of-bounds-Write im Brotli-Decoder).
+# Node kommt aus dem NodeSource-Repo des Playwright-Base-Images. Das Base-Image
+# kann selbst ein verwundbares Node mitbringen (v1.64.0 lieferte 24.21.0),
+# gepatcht wird dann erst durch das `apt-get upgrade` oben. Stammt diese apt-Layer aus einem alten
+# Build-Cache (APT_REFRESH-Default nicht gebumpt), landet still das alte Node
+# im Image — der Check bricht den Build dann ab, statt es auszuliefern.
+# Mindestversionen pro Release-Line laut Node-Advisory vom 21.10.2026;
+# EOL-Lines (20, 23, 25) bekommen keinen Fix und schlagen immer fehl.
+RUN node -e "\
+const [maj, min, pat] = process.versions.node.split('.').map(Number); \
+const fixed = { 22: [23, 4], 24: [22, 1], 26: [12, 1] }[maj]; \
+const ok = maj > 26 || (fixed !== undefined && (min > fixed[0] || (min === fixed[0] && pat >= fixed[1]))); \
+if (!ok) { console.error('Node ' + process.version + ' ist verwundbar (CVE-2026-111497, Node2Shell): Base-Image-Digest bzw. APT_REFRESH aktualisieren'); process.exit(1); } \
+console.log('Node ' + process.version + ': Node2Shell-Fix vorhanden');"
 
 # --------- deps: install production dependencies ---------
 # `--ignore-scripts` skips the root package.json's `postinstall` hook

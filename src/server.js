@@ -50,6 +50,7 @@ const sse = require('./sse');
 const runScrapeMod = require('./runScrape');
 const routes = require('./routes');
 const { apiError } = require('./shared/apiError');
+const { jsonBody } = require('./jsonBody');
 
 // web-push ist optional — wenn das Paket fehlt (z.B. nach git-clone ohne npm install)
 // laufen Endpoints / Scrape-Block ohne Push weiter und loggen einen Hinweis.
@@ -253,11 +254,14 @@ app.use(helmet({
 // Limit schützt vor Spam-Subscriptions/Replay. Settings ebenfalls eng gekappt
 // (auch volle UI-Config ist <2 KB JSON). Globaler Default 8 KB ist ausreichend
 // für alle übrigen API-Bodies und schützt vor accidental-large-paste.
-app.use('/api/push', express.json({ limit: '4kb' }));
-app.use('/api/seen', express.json({ limit: '4kb' }));
-app.use('/api/dismiss', express.json({ limit: '4kb' }));
-app.use('/api/settings', express.json({ limit: '4kb' }));
-app.use(express.json({ limit: '8kb' }));
+// jsonBody() statt express.json(): lehnt komprimierte Bodies mit 415 ab,
+// damit kein Client ungefragt den zlib-/Brotli-Decoder erreicht (Node2Shell,
+// siehe src/jsonBody.js).
+app.use('/api/push', jsonBody('4kb'));
+app.use('/api/seen', jsonBody('4kb'));
+app.use('/api/dismiss', jsonBody('4kb'));
+app.use('/api/settings', jsonBody('4kb'));
+app.use(jsonBody('8kb'));
 
 // Cache-Control für alle /api/*-Responses: no-store.
 // Begründung: API-Responses sind dynamisch (Status, Noten-Liste, Logs)
