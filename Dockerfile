@@ -10,7 +10,7 @@
 # safe (a compromised tag does not auto-pull). Dependabot (docker ecosystem in
 # .github/dependabot.yml) opens a PR when Microsoft publishes a new digest, so
 # patches still flow in — just gated by review instead of silently picked up.
-FROM mcr.microsoft.com/playwright:v1.65.0-jammy@sha256:5a8620d70618963ec6628dd77cc25ec6a4b232e26c4a41241a8c1def04e2dc04 AS base
+FROM mcr.microsoft.com/playwright:v1.65.1-jammy@sha256:b0ee5ce5e14ac42c394c0564a0a30adbda052153c611561bb2d31263593d6dd8 AS base
 WORKDIR /app
 ENV NODE_ENV=production \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
